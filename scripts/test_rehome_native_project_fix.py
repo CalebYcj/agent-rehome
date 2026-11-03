@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory() as td:
  rows.insert(2,{'type':'response_item','payload':{'role':'user','internal_chat_message_metadata_passthrough':{'turn_id':'turn-a'},'content':[{'type':'input_text','text':'HARNESS_MUST_NOT_IMPORT'},{'type':'input_image','image_url':'data:image/png;base64,'+base64.b64encode(png).decode()}]}})
  src.write_text(''.join(json.dumps(x)+'\n' for x in rows))
  package=d/'package';p.pack('codex',project,package,d,[{'snapshot':str(src),'title':'测试 · 项目迁移测试'}])
- m=json.loads((package/'manifest.json').read_text(encoding='utf-8'))
+ m=p.load_manifest(package)
  assert len(m['files'])==1 and len(m['attachments'])==2
  assert any((package/a['path']).read_bytes()==png for a in m['attachments'])
  assert any((package/a['path']).read_bytes()=='附件全文'.encode() for a in m['attachments'])

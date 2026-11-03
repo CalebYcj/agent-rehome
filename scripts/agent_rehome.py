@@ -1,17 +1,18 @@
 """Portable visible-history transfer; no GUI dependency. Python 3.10+."""
 from platform_paths import sqlite_read_uri
+from rollout_io import source_bytes
 from contextlib import closing
 import base64, mimetypes
 import argparse, datetime as dt, hashlib, json, os, re, shutil, sqlite3, sys, uuid
 from pathlib import Path
 import codex_backend as backend
 import codex_native
+import exchange
 from claude_context import DEFAULT_BUDGET, POLICY_VERSION, estimate_records, plan_context, source_compaction_hint
 NS = uuid.UUID('6f1c2a9e-4b7d-4c1e-9a3f-c1a0dec0de01')
 def now(): return dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00','Z')
 def read(p):
-    if str(p).endswith('.zst'): raise ValueError('先把 .zst 解压为 .jsonl；源文件保持不变')
-    with open(p, encoding='utf-8-sig') as f: return [json.loads(l) for l in f if l.strip()]
+    return [json.loads(line.decode('utf-8-sig')) for line in source_bytes(p).splitlines() if line.strip()]
 def dump(p, obj):
     p=Path(p); p.parent.mkdir(parents=True,exist_ok=True)
     tmp=p.with_name(p.name+'.rehome-tmp'); tmp.write_text(json.dumps(obj,ensure_ascii=False,indent=2),encoding='utf-8'); os.replace(tmp,p)
@@ -19,7 +20,13 @@ def digest(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 def locate(agent, session, home):
     p=Path(session)
     if p.is_file(): return p
-    hits=list(Path(home).glob(('projects/*/' if agent=='claude' else 'sessions/**/rollout-*')+session+('.jsonl' if agent=='claude' else '.jsonl*')))
+    if agent=='codex' and (Path(home)/'state_5.sqlite').exists():
+        with closing(sqlite3.connect(sqlite_read_uri(Path(home)/'state_5.sqlite'),uri=True)) as db:
+            paths=[row[0] for row in db.execute('select rollout_path from threads where id=?',(session,))]
+        if paths:
+            from platform_paths import source_rollout
+            return source_rollout(home,paths[0])
+    hits=list(Path(home).glob('projects/*/'+session+'.jsonl')) if agent=='claude' else [path for folder in ('sessions','archived_sessions') for pattern in ('*'+session+'.jsonl','*'+session+'.jsonl.zst') for path in (Path(home)/folder).rglob(pattern)]
     if len(hits)!=1: raise ValueError(f'会话匹配 {len(hits)} 个，请提供明确的 jsonl 路径')
     return hits[0]
 def content(v):
@@ -43,13 +50,70 @@ def codex_user_text(text):
     files=re.findall(r'^## (.+?): (.+)$',m.group(1),re.M)
     head='附件：'+'、'.join(f'{n}（{p}）' for n,p in files)+'\n\n' if files else ''
     return head+m.group(2).strip()
+def codex_legacy_rows(rows):
+    """Project old visible events into the UI reader; match duplicate occurrences, not text sets."""
+    if not any(row.get('type')=='event_msg' and (row.get('payload') or {}).get('type') in ('user_message','agent_message') for row in rows):return rows
+    from collections import defaultdict,deque
+    outputs={};new_messages=defaultdict(deque);new_turn_messages=defaultdict(deque);new_calls={};new_tools=defaultdict(deque);replaced=set();substitutions={}
+    def signature(item):return item.get('type'),codex_user_text(content(item.get('content'))) if item.get('type')=='UserMessage' else content(item.get('content'))
+    for n,row in enumerate(rows):
+        q=row.get('payload') or {};kind=q.get('type')
+        if row.get('type')=='response_item' and kind in ('function_call_output','custom_tool_call_output'):
+            outputs[q.get('call_id')]=(row,q.get('output'))
+        if row.get('type')=='event_msg' and kind=='web_search_end':outputs[q.get('call_id')]=(row,q.get('results') or q.get('output'))
+        if row.get('type')=='event_msg' and kind=='item_completed':
+            item=q.get('item') or {}
+            if item.get('type') in ('UserMessage','AgentMessage'):
+                new_messages[(row.get('timestamp'),signature(item))].append(n)
+                if q.get('turn_id'):new_turn_messages[(q['turn_id'],signature(item))].append(n)
+            elif item.get('id'):
+                new_calls[item['id']]=n
+                if item.get('type')=='CommandExecution':
+                    cmd=item.get('command') or [];cmd=cmd[-1] if len(cmd)>=3 and cmd[-2] in ('-Command','-c','/c') else ' '.join(cmd) if isinstance(cmd,list) else str(cmd)
+                    args={'command':cmd};out=item.get('aggregated_output') or ''
+                elif item.get('type')=='McpToolCall':args=item.get('arguments') or {};out=content((item.get('result') or {}).get('content'))
+                else:continue
+                new_tools[(row.get('timestamp'),json.dumps(args,sort_keys=True,ensure_ascii=False),out)].append(n)
+    projected={}
+    for n,row in enumerate(rows):
+        q=row.get('payload') or {};kind=q.get('type');item=None
+        if row.get('type')=='event_msg' and kind in ('user_message','agent_message'):
+            text=q.get('message') or ''
+            if not text and kind=='user_message' and (q.get('images') or q.get('local_images')):text='[用户上传图片]'
+            item={'type':'UserMessage' if kind=='user_message' else 'AgentMessage','content':[{'type':'text','text':text}],'phase':q.get('phase')}
+            matches=new_turn_messages[(q.get('turn_id'),signature(item))]
+            while matches and matches[0] in replaced:matches.popleft()
+            if not matches:matches=new_messages[(row.get('timestamp'),signature(item))]
+            while matches and (matches[0] in replaced or (q.get('turn_id') and rows[matches[0]]['payload'].get('turn_id') not in (None,q['turn_id']))):matches.popleft()
+            if matches:
+                index=matches.popleft();replaced.add(index);substitutions[n]=rows[index];continue
+        elif row.get('type')=='response_item' and kind in ('function_call','custom_tool_call','web_search_call'):
+            call=q.get('call_id') or q.get('id')
+            if call in new_calls:
+                index=new_calls[call];replaced.add(index);substitutions[n]=rows[index];continue
+            raw=q.get('arguments') if kind=='function_call' else q.get('input') if kind=='custom_tool_call' else q.get('action',{})
+            try:args=json.loads(raw) if isinstance(raw,str) else raw
+            except ValueError:args={'input':raw}
+            if not isinstance(args,dict):args={'input':args}
+            result=outputs.get(call);out=result[1] if result else ''
+            if not isinstance(out,str):out=json.dumps(out,ensure_ascii=False) if out is not None else ''
+            matches=new_tools[(row.get('timestamp'),json.dumps(args,sort_keys=True,ensure_ascii=False),out)]
+            while matches and matches[0] in replaced:matches.popleft()
+            if matches:
+                index=matches.popleft();replaced.add(index);substitutions[n]=rows[index];continue
+            item={'type':'LegacyTool','name':q.get('name') or 'web_search','args':args,'input':raw if isinstance(raw,str) else json.dumps(raw,ensure_ascii=False),
+                'output':out,'completed_ts':result[0].get('timestamp') if result else None,'status':q.get('status'),
+                'missing_result':result is None,'call_id':call}
+        if item:projected[n]=dict(row,type='event_msg',payload={'type':'item_completed','item':item})
+    return [substitutions.get(n,projected.get(n,row)) for n,row in enumerate(rows) if n not in replaced]
+
 def export_codex(rows, sid, home, full_tools=False):
     """Read the UI layer (event_msg/item_completed) — exactly what the Codex sidebar shows, without harness-injected context."""
     title=None; idx=Path(home)/'session_index.jsonl'
     if idx.exists(): title=next((x.get('thread_name') for x in reversed(read(idx)) if x.get('id')==sid),None)
     turns=[]
     limit=lambda text,n: text if full_tools else clip(text,n)
-    for r in rows:
+    for r in codex_legacy_rows(rows):
         q=r.get('payload',{})
         if r.get('type')!='event_msg' or q.get('type')!='item_completed': continue
         it=q.get('item',{}); kind=it.get('type'); ts=r.get('timestamp') or now()
@@ -57,17 +121,18 @@ def export_codex(rows, sid, home, full_tools=False):
             text=codex_user_text(content(it.get('content')))
             if not text.strip() and any(x.get('type')=='local_image' for x in it.get('content',[])): text='[用户上传图片]'
             # Image/file-only turns are real user turns too.
-            turns.append({'user':{'ts':ts,'text':text},'items':[]})
+            turns.append({'user':{'ts':ts,'text':text,'_raw_ref':r.get('_raw_ref')},'items':[]})
             continue
         if not turns: continue
         if kind=='AgentMessage':
             text=content(it.get('content'))
-            if text.strip(): turns[-1]['items'].append({'kind':'message','ts':ts,'text':text,'phase':it.get('phase')})
+            if text.strip(): turns[-1]['items'].append({'kind':'message','ts':ts,'text':text,'phase':it.get('phase'),'_raw_ref':r.get('_raw_ref')})
         elif kind=='CommandExecution':
             cmd=it.get('command') or []
             cmd=cmd[-1] if len(cmd)>=3 and cmd[-2] in ('-Command','-c','/c') else ' '.join(cmd) if isinstance(cmd,list) else str(cmd)
             turns[-1]['items'].append({'kind':'tool','ts':ts,'name':'shell','input':limit(cmd,TOOL_INPUT_LIMIT),
-                                       'output':limit(it.get('aggregated_output') or '',TOOL_OUTPUT_LIMIT),'is_error':it.get('status')=='failed' or it.get('exit_code') not in (None,0)})
+                                       'args':{'command':cmd},'status':it.get('status'),'exit_code':it.get('exit_code'),
+                                       'output':limit(it.get('aggregated_output') or '',TOOL_OUTPUT_LIMIT),'is_error':it.get('status')=='failed' or it.get('exit_code') not in (None,0),'_raw_ref':r.get('_raw_ref')})
         elif kind=='McpToolCall':
             args=it.get('arguments') or {}; res=it.get('result') or {}
             turns[-1]['items'].append({'kind':'tool','ts':ts,'name':f"mcp__{it.get('server','mcp')}__{it.get('tool','tool')}",
@@ -75,14 +140,18 @@ def export_codex(rows, sid, home, full_tools=False):
                                        'input':limit(json.dumps(args,ensure_ascii=False),TOOL_INPUT_LIMIT),
                                        'args':args if isinstance(args,dict) else {'input':args},
                                        'output':limit(content(res.get('content')) if isinstance(res,dict) else str(res),TOOL_OUTPUT_LIMIT),
-                                       'is_error':bool(isinstance(res,dict) and res.get('isError'))})
+                                       'is_error':bool(isinstance(res,dict) and res.get('isError')),'_raw_ref':r.get('_raw_ref')})
+        elif kind=='LegacyTool':
+            turns[-1]['items'].append({'kind':'tool','ts':ts,'name':it['name'],'args':it['args'],
+                'input':limit(it['input'],TOOL_INPUT_LIMIT),'output':limit(it['output'],TOOL_OUTPUT_LIMIT),
+                'status':it.get('status'),'is_error':it.get('status')=='failed','completed_ts':it['completed_ts'],'_raw_ref':r.get('_raw_ref')})
         elif kind not in ('Reasoning','ContextCompaction'):
             # Preserve visible patch/image/extension/agent activity as historical cards.
             args={k:v for k,v in it.items() if k not in ('id','type')}
             turns[-1]['items'].append({'kind':'tool','ts':ts,'name':'Codex_'+str(kind),'args':args,
                 'input':limit(json.dumps(args,ensure_ascii=False),TOOL_INPUT_LIMIT),
                 'output':limit(it.get('stdout') or it.get('output') or '(历史界面事件)',TOOL_OUTPUT_LIMIT),
-                'is_error':it.get('status')=='failed'})
+                'is_error':it.get('status')=='failed','_raw_ref':r.get('_raw_ref')})
     return turns,title
 def desktop_next_step(args):
     """The desktop's next-step box is visible conversation, not a hidden receipt."""
@@ -100,7 +169,7 @@ def export_claude(rows,full_tools=False):
     for r in rows:
         if r.get('type')=='custom-title': title=r.get('customTitle') or title
         c=(r.get('message') or {}).get('content')
-        if r.get('type')=='user' and isinstance(c,list):
+        if r.get('type')=='user' and isinstance(c,list) and not r.get('isSidechain') and not r.get('isMeta'):
             for x in c:
                 if x.get('type')=='tool_result': results[x.get('tool_use_id')]=(content(x.get('content')),bool(x.get('is_error')),r.get('timestamp'))
     turns=[];next_steps=[]
@@ -122,33 +191,40 @@ def export_claude(rows,full_tools=False):
             if text.lstrip().startswith('<task-notification>'):
                 # harness background-task notice, not a user bubble: keep it inside the current turn
                 m=re.search(r'<summary>(.*?)</summary>',text,re.S)
-                if turns: turns[-1]['items'].append({'kind':'message','ts':ts,'text':'（后台任务通知）'+(m.group(1).strip() if m else '')})
+                if turns: turns[-1]['items'].append({'kind':'message','ts':ts,'text':'（后台任务通知）'+(m.group(1).strip() if m else ''),'_raw_ref':r.get('_raw_ref')})
             elif text.strip():
                 flush_next_steps()
-                turns.append({'user':{'ts':ts,'text':text},'items':[]})
+                turns.append({'user':{'ts':ts,'text':text,'_raw_ref':r.get('_raw_ref')},'items':[]})
         elif turns:
-            for x in c or []:
-                if x.get('type')=='text' and x.get('text','').strip(): turns[-1]['items'].append({'kind':'message','ts':ts,'text':x['text']})
+            for block,x in enumerate(c or []):
+                ref=dict(r['_raw_ref'],block=block) if r.get('_raw_ref') else None
+                if x.get('type')=='text' and x.get('text','').strip(): turns[-1]['items'].append({'kind':'message','ts':ts,'text':x['text'],'_raw_ref':ref})
                 elif x.get('type')=='tool_use':
                     if x.get('name')=='mcp__ccd_turn__wrap_up':
                         text=desktop_next_step(x.get('input') or {})
-                        if text:next_steps.append({'kind':'message','ts':ts,'text':text,'phase':'final_answer','provenance':'claude-desktop-next-step'})
+                        if text:next_steps.append({'kind':'message','ts':ts,'text':text,'phase':'final_answer','provenance':'claude-desktop-next-step','_raw_ref':ref})
                         continue
                     if x.get('name','').startswith('mcp__ccd_turn__'):continue
                     args=x.get('input') or {}; out,err,completed=results.get(x.get('id'),('',False,None))
                     turns[-1]['items'].append({'kind':'tool','ts':ts,'name':x.get('name','tool'),'description':args.get('description',''),
                                                'input':limit(args.get('command') if isinstance(args.get('command'),str) else json.dumps(args,ensure_ascii=False),TOOL_INPUT_LIMIT),
-                                               'args':args,'output':limit(out,TOOL_OUTPUT_LIMIT),'is_error':err,'completed_ts':completed})
+                                               'args':args,'output':limit(out,TOOL_OUTPUT_LIMIT),'is_error':err,'completed_ts':completed,'_raw_ref':ref})
     flush_next_steps()
     return turns,title
 def export(agent, session, home, full_tools=False):
     p=locate(agent,session,home); rows=read(p)
+    refs=exchange.raw_refs(p,rows)
+    for row,ref in zip(rows,refs):row['_raw_ref']=ref
     meta=next((r['payload'] for r in rows if r.get('type')=='session_meta'),{})
     sid=meta.get('id') or meta.get('session_id') or next((r.get('sessionId') for r in rows if r.get('sessionId')),None) or p.stem
     cwd=meta.get('cwd') or next((r.get('cwd') for r in rows if r.get('cwd')),'')
     turns,title=export_claude(rows,full_tools) if agent=='claude' else export_codex(rows,sid,home,full_tools)
     if not turns: raise ValueError('没有可迁移的可见对话')
     source={'agent':agent,'session_id':sid,'path':str(p),'exported_at':now()}
+    source['agent_version']=meta.get('cli_version') if agent=='codex' else next((row['version'] for row in reversed(rows) if row.get('version')),None)
+    for field in ('forked_from','subagent_of'):
+        value=meta.get(field) or next((row[field] for row in rows if row.get(field)),None)
+        if value is not None:source[field]=value
     if agent=='codex': source['compaction_hint']=source_compaction_hint(rows)
     else:
         boundaries=[x for x in rows if x.get('subtype')=='compact_boundary' and not x.get('isSidechain')]
@@ -156,18 +232,28 @@ def export(agent, session, home, full_tools=False):
         calls=[x for row in rows if row.get('type')=='assistant' and not row.get('isMeta') and not row.get('isSidechain') for x in row.get('message',{}).get('content',[]) if isinstance(x,dict) and x.get('type')=='tool_use']
         source['converted_desktop_wrapups']=sum(x.get('name')=='mcp__ccd_turn__wrap_up' and bool(desktop_next_step(x.get('input') or {})) for x in calls)
         source['filtered_desktop_turn_calls']=sum(x.get('name','').startswith('mcp__ccd_turn__') and (x.get('name')!='mcp__ccd_turn__wrap_up' or not desktop_next_step(x.get('input') or {})) for x in calls)
-    return {'schema':'agent-transcript/v1','source':source,'title':title or turns[0]['user']['text'][:60],'project':{'cwd':cwd},'turns':turns}
+    extras,losses=exchange.audit_source(agent,rows,refs)
+    if not full_tools:
+        for n,turn in enumerate(turns):
+            for j,item in enumerate(turn['items']):
+                if item['kind']=='tool' and any('…[已截断，原长 ' in item.get(field,'') for field in ('input','output')):
+                    losses.append({'event':f'turn/{n}/items/{j}','raw_ref':item.get('_raw_ref'),'kind':'tool_text_limit','reason':'unsupported_by_target','action':'summarized','stage':'diagnostic-export'})
+    return exchange.upgrade_v1({'schema':'agent-transcript/v1','source':source,'title':title or turns[0]['user']['text'][:60],
+        'project':{'cwd':cwd},'turns':turns,'losses':losses,'_nonconversation_events':extras})
 def validate(b):
+    if b.get('schema')==exchange.SCHEMA:
+        exchange.validate(b);return validate(exchange.to_v1(b))
     if b.get('schema')!='agent-transcript/v1' or b['source']['agent'] not in ('claude','codex'): raise ValueError('不支持的对话包')
     uuid.UUID(b['source']['session_id'])
     if not b['turns']: raise ValueError('空对话包')
-    for t in b['turns']:
+    for n,t in enumerate(b['turns']):
         backend.to_ms(t['user']['ts'])
         if not isinstance(t['user']['text'],str): raise ValueError('消息必须是文本')
-        for i in t['items']:
+        for j,i in enumerate(t['items']):
             if i['kind']=='message' and isinstance(i['text'],str): pass
             elif i['kind']=='tool' and isinstance(i.get('name'),str) and isinstance(i.get('input',''),str) and isinstance(i.get('output',''),str): pass
-            else: raise ValueError('不支持的历史项')
+            elif any(x.get('event')==(i.get('id') or f'turn/{n}/items/{j}') and x.get('reason') in exchange.REASONS and x.get('action') in exchange.ACTIONS for x in b.get('losses',[])): pass
+            else: raise ValueError('不支持的历史项；需要明确对应的损失条目')
             backend.to_ms(i['ts'])
 CLAUDE_NATIVE_TOOLS={'Bash','Read','Write','Edit','Glob','Grep','WebFetch','WebSearch','NotebookEdit','PowerShell'}
 def claude_tool_use(i):
@@ -183,9 +269,15 @@ def desktop_registry_dir(a):
     if getattr(a,'no_desktop',False): return None
     if getattr(a,'desktop_registry',None): return Path(a.desktop_registry)
     if a.target_home: return None  # custom home: only register when the directory is given explicitly
-    if os.name!='nt': return None  # Other desktop layouts have not been verified.
-    base=Path(os.environ.get('LOCALAPPDATA',Path.home()/'AppData'/'Local'))/'Claude-Data'
-    dirs={f.parent for f in base.glob('*/claude-code-sessions/*/*/local_*.json')}
+    if sys.platform=='darwin':
+        # MAC-C1 verified this layout on macOS 14.8.9 / Claude desktop 4.4212.0.
+        base=Path.home()/'Library/Application Support/Claude/claude-code-sessions'
+        pattern='*/*/local_*.json'
+    elif sys.platform=='win32':
+        base=Path(os.environ.get('LOCALAPPDATA',Path.home()/'AppData'/'Local'))/'Claude-Data'
+        pattern='*/claude-code-sessions/*/*/local_*.json'
+    else:return None
+    dirs={f.parent for f in base.glob(pattern)}
     return max(dirs,key=lambda d:max(f.stat().st_mtime for f in d.glob('local_*.json'))) if dirs else None
 def desktop_model(a):
     d=desktop_registry_dir(a)
@@ -263,7 +355,12 @@ def compact_claude_history(rows,groups,plan,sid,cwd,version):
     return result
 
 def import_bundle(b, a):
-    validate(b); cwd=str(Path(a.cwd).resolve())
+    validate(b)
+    if b['source']['agent']==a.to and not getattr(a,'convert',False):
+        if a.to=='codex': raise ValueError('Codex→Codex: use ReHome Desktop or codex-rehome-skill; Python conversion requires explicit --convert for diagnostics.')
+        raise ValueError('Claude→Claude: use native transfer or a --native package; converted history requires explicit --convert.')
+    canonical=exchange.upgrade_v1(b);b=exchange.to_v1(canonical);losses=list(b.get('losses',[]))
+    cwd=str(Path(a.cwd).resolve())
     if not Path(cwd).is_dir(): raise ValueError('目标项目目录不存在')
     home=Path(a.target_home or Path.home()/('.codex' if a.to=='codex' else '.claude')).resolve()
     from target_settings import codex_model,claude_settings
@@ -273,9 +370,9 @@ def import_bundle(b, a):
             getattr(a,'claude_version',None),desktop_model(a))
     notices=[]
     if a.to=='claude' and not getattr(a,'no_desktop',False) and not desktop_registry_dir(a):
-        notices.append('Claude desktop registration unavailable (auto-detection tested only on Windows). '
+        notices.append('Claude desktop registration unavailable (known layouts: Windows and the MAC-C1 macOS sample). '
             'History can be resumed in Claude Code CLI; use --desktop-registry for a verified layout. Sidebar visibility is not verified.')
-    fingerprint={'title':b['title'],'turns':b['turns']}
+    fingerprint={'title':b['title'],'turns':b['turns'],'losses':losses,'extensions':b.get('_nonconversation_events',[])}
     if a.to=='claude':fingerprint['context_policy']={'version':POLICY_VERSION,'budget':getattr(a,'claude_context_budget',DEFAULT_BUDGET)}
     else:fingerprint['context_policy']={'version':codex_native.POLICY_VERSION,'budget':getattr(a,'codex_context_budget',DEFAULT_BUDGET)}
     bundle_hash=hashlib.sha256(json.dumps(fingerprint,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
@@ -299,7 +396,7 @@ def import_bundle(b, a):
                 registry_backup=home/'rehome-backups'/('registration-'+dt.datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
                 dump(registry_backup/'backup.json',{reg:{'existed':False,'backup':None}})
                 reg=register_desktop(b,a,sid,cwd)
-        result={'status':'already-imported','id':sid,'desktop_registry':reg,'context':old.get('context'),'warnings':notices}
+        result={'status':'already-imported','id':sid,'desktop_registry':reg,'context':old.get('context'),'warnings':notices,'losses_summary':old.get('losses_summary',exchange.loss_summary(losses))}
         print(json.dumps(result,ensure_ascii=False)); return result
     hits=list(home.glob(('sessions/**/rollout-*'+sid+'.jsonl*') if a.to=='codex' else ('projects/*/'+sid+'.jsonl')))
     if hits: raise ValueError('存在未受本工具管理的同 ID 会话，拒绝覆盖')
@@ -315,9 +412,13 @@ def import_bundle(b, a):
         context=native_rollout.context_plan
         archive_path=Path(cwd)/'.rehome/history/codex'/(sid+'.jsonl')
         context_report_path=Path(cwd)/'.rehome/context/codex'/(sid+'.json')
-    if (archive_path and archive_path.exists()) or context_report_path.exists():raise ValueError('历史归档或上下文报告已存在，拒绝覆盖；目标尚未写入')
+    loss_report=Path(cwd)/'.rehome/losses'/a.to/(sid+'.json')
+    exchange_archive=Path(cwd)/'.rehome/exchange'/a.to/(sid+'.json')
+    if (archive_path and archive_path.exists()) or context_report_path.exists() or loss_report.exists() or exchange_archive.exists():raise ValueError('历史归档或上下文报告已存在，拒绝覆盖；目标尚未写入')
+    if context and context.get('prefix_turns'):
+        losses.append({'event':'target-context','kind':'target_context','reason':'unsupported_by_target','action':'summarized','stage':'derived-context','count':context['prefix_turns']})
     print(json.dumps({'target':a.to,'id':sid,'cwd':cwd,'turns':len(b['turns']),'dry_run':a.dry_run,'context':context,
-                      'desktop_registry':register_desktop(b,a,sid,cwd) if a.to=='claude' and a.dry_run else None,'warnings':notices},ensure_ascii=False))
+                      'desktop_registry':register_desktop(b,a,sid,cwd) if a.to=='claude' and a.dry_run else None,'warnings':notices,'losses_summary':exchange.loss_summary(losses)},ensure_ascii=False))
     if a.dry_run: return
     stamp=dt.datetime.now().strftime('%Y%m%d-%H%M%S-%f'); backup=home/'rehome-backups'/stamp
     backup.mkdir(parents=True)
@@ -359,19 +460,10 @@ def import_bundle(b, a):
             for table,cols in required.items():
                 actual={row[1] for row in check.execute('pragma table_info('+table+')')}
                 if not set(cols.split()) <= actual: raise ValueError('目标数据库格式不兼容：'+table)
-        # Preserve the locally verified rollout/database writer, with strict wrapper guards.
         save(db); save(home/'session_index.jsonl')
-        turns=[{'user':(t['user']['ts'],t['user']['text']),'agent':[(i['ts'],i['text']) for i in t['items'] if i['kind']=='message']} for t in b['turns']]
-        backend.find_session=lambda _: str(Path(b['source']['session_id']+'.jsonl'))
-        last_ts=(b['turns'][-1]['items'] or [b['turns'][-1]['user']])[-1]['ts']
-        backend.parse_claude=lambda *_: (turns,b['title'],turns[0]['user'][0],last_ts)
-        backend.target_thread_id=sid
-        backend.import_attachments=[t['user'].get('attachments',[]) for t in b['turns']]
-        sys.argv=['codex_backend',b['source']['session_id'],'--cwd',cwd,'--codex-home',str(home),'--model',a.model]
-        previous_builder=backend.build_rollout
-        backend.build_rollout=lambda *_:native_rollout
-        try:backend.main()
-        finally:backend.build_rollout=previous_builder
+        first=b['turns'][0]['user'];last_ts=(b['turns'][-1]['items'] or [b['turns'][-1]['user']])[-1]['ts']
+        backend.write_codex_thread(home,sid,native_rollout,cwd,b['title'],a.model,
+            first_ts=first['ts'],last_ts=last_ts,first_user_message=first['text'])
         files=list(home.glob('sessions/**/rollout-*'+sid+'.jsonl'))
         if len(files)!=1: raise ValueError('写入后 rollout 数量不正确')
         archive=archive_path;report=context_report_path
@@ -380,8 +472,10 @@ def import_bundle(b, a):
             for row in native_rollout.history_archive_lines:f.write(json.dumps(row,ensure_ascii=False,separators=(',',':'))+'\n')
         context['archive']=str(archive);save(report);dump(report,context);files.extend([archive,report])
     dump(backup/'backup.json',before)
-    dump(manifest,{'id':sid,'cwd':cwd,'bundle_hash':bundle_hash,'source':b['source'],'files':{str(p):digest(p) for p in files},'desktop_registry':reg,'backup':str(backup),'context':context})
-    result={'status':'written','id':sid,'backup':str(backup),'desktop_registry':reg,'context':context,'warnings':notices,
+    save(exchange_archive);dump(exchange_archive,canonical);files.append(exchange_archive)
+    loss_report=Path(cwd)/'.rehome/losses'/a.to/(sid+'.json');save(loss_report);dump(loss_report,{'losses':losses,'losses_summary':exchange.loss_summary(losses)});files.append(loss_report)
+    dump(manifest,{'id':sid,'cwd':cwd,'bundle_hash':bundle_hash,'source':b['source'],'files':{str(p):digest(p) for p in files},'desktop_registry':reg,'backup':str(backup),'context':context,'losses_summary':exchange.loss_summary(losses)})
+    result={'status':'written','id':sid,'backup':str(backup),'desktop_registry':reg,'context':context,'warnings':notices,'losses_summary':exchange.loss_summary(losses),'losses_report':str(loss_report),
             'next':'重启 Claude 桌面版后在侧边栏打开' if reg else ('未找到 Claude 桌面版登记目录，只能用 CLI resume' if a.to=='claude' else 'native resume still required')}
     print(json.dumps(result,ensure_ascii=False));return result
 def main():
@@ -390,8 +484,12 @@ def main():
         q=sub.add_parser(name)
         if name!='import':
             q.add_argument('--from',dest='source',required=True,help='claude:<id/path> 或 codex:<id/path>'); q.add_argument('--source-home')
+            q.add_argument('--native',action='store_true',help='Export private Claude native directory package')
+            q.add_argument('--include-memory',action='store_true');q.add_argument('--include-checkpoints',action='store_true')
+            q.add_argument('--source-desktop-registry')
         if name=='export': q.add_argument('--out',required=True)
         else:
+            q.add_argument('--convert',action='store_true',help='Explicitly allow lossy same-agent conversion for diagnostics')
             if name=='import': q.add_argument('bundle')
             q.add_argument('--to',choices=['claude','codex'],required=True); q.add_argument('--cwd',required=True); q.add_argument('--target-home'); q.add_argument('--dry-run',action='store_true'); q.add_argument('--model',help='Target Codex model; detected from target config/history when omitted'); q.add_argument('--claude-version',help='Target Claude Code version; detected from target history when omitted')
             q.add_argument('--desktop-registry',help='Claude 桌面版 claude-code-sessions/<org>/<account> 目录；默认自动查找'); q.add_argument('--no-desktop',action='store_true',help='不登记到 Claude 桌面版')
@@ -399,10 +497,25 @@ def main():
             q.add_argument('--claude-context-budget',type=int,default=DEFAULT_BUDGET,help='Claude 恢复上下文的保守估算预算（默认 64000）；完整历史另行保留')
             q.add_argument('--codex-context-budget',type=int,default=DEFAULT_BUDGET,help='Codex 恢复上下文的保守估算预算（默认 64000）')
     a=p.parse_args()
-    if a.command=='import': b=json.loads(Path(a.bundle).read_text(encoding='utf-8-sig'))
+    if a.command=='import':
+        if Path(a.bundle).is_dir():
+            import claude_native
+            claude_native.restore(claude_native.load(a.bundle),a);return
+        b=json.loads(Path(a.bundle).read_text(encoding='utf-8-sig'))
     else:
         agent,session=a.source.split(':',1)
         if agent not in ('claude','codex'): raise ValueError('来源必须是 claude 或 codex')
+        home=Path(a.source_home or Path.home()/('.claude' if agent=='claude' else '.codex'))
+        native=a.native or (a.command=='transfer' and agent==a.to=='claude' and not a.convert)
+        if a.command=='transfer' and agent==a.to=='codex' and not a.convert:
+            raise ValueError('Codex→Codex: use ReHome Desktop or codex-rehome-skill; --convert is diagnostics only.')
+        if native:
+            if agent!='claude':raise ValueError('--native is implemented only for Claude; use ReHome for Codex')
+            import claude_native
+            snap=claude_native.snapshot(locate(agent,session,home),home,a.include_memory,a.include_checkpoints,a.source_desktop_registry)
+            if a.command=='export':claude_native.pack(snap,a.out);print(a.out)
+            else:claude_native.restore(snap,a)
+            return
         b=export(agent,session,a.source_home or Path.home()/('.claude' if agent=='claude' else '.codex'),full_tools=True)
     if a.command=='export': validate(b); dump(a.out,b); print(a.out)
     else: import_bundle(b,a)

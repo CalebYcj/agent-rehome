@@ -1,6 +1,10 @@
 # macOS preview acceptance handoff
 
-Version: **0.2.0-mac-preview.1**. This is a test candidate, not a claim that macOS native migration has passed. All previous native acceptance was on Windows. Use this directory as the independent Skill source. Do not publish or run historical tasks.
+Version: **0.4.0-preview.1**. This preview has bounded native Claude and cross-agent whole-project Mac samples, not general macOS acceptance. Current results and remaining limits are in [docs/VALIDATION.md](docs/VALIDATION.md). Use this independent Skill source; do not run historical tasks or repeat completed tests solely because documentation changed.
+
+## Architecture preview boundary
+
+Codex same-agent migration delegates to ReHome; explicit --convert is diagnostic only. Native Claude relocation preserves historical bytes except declared top-level cwd rebinding. MAC-C1/C2/C3 and MAC-X1/X2 cover different samples: read their scope before claiming success. Single-account registry discovery was spot-checked; multiple accounts remain unverified. The current candidate still needs its own Mac regression before broadening those older live results. Read [SPEC.md](SPEC.md) and the route guidance in SKILL.md first.
 
 ## What changed
 
@@ -8,7 +12,14 @@ Version: **0.2.0-mac-preview.1**. This is a test candidate, not a claim that mac
 - Foreign Windows attachment basenames and project path prefixes can be rebound on a POSIX target. Copied Codex rollout locations are resolved under the selected source data root, rather than an obsolete absolute path.
 - SQLite read-only URIs escape spaces, Unicode, percent and fragment characters.
 - POSIX project snapshots preserve normal permission bits, including executable bits; unsafe special permission bits are rejected. Windows snapshots cannot infer executable bits that were never stored.
-- `doctor.py` provides read-only schema/settings diagnostics. Its macOS Claude desktop paths are **unverified candidates only**. No automatic macOS desktop write or app launch was added.
+- `doctor.py` provides read-only schema/settings diagnostics. Its candidate list is diagnostic, not acceptance evidence. MAC-C1 verified `~/Library/Application Support/Claude/claude-code-sessions/<org>/<account>/local_*.json`. Registry auto-discovery now uses that layout only on darwin, only without --target-home; a custom target home still requires --desktop-registry. No app launch was added.
+
+
+### Preparing Python on macOS
+
+A working Python 3.10 or newer is required. macOS may not provide one by default; a python3 command can be a developer-tools prompt rather than a ready interpreter. Run `python3 --version` and verify at least 3.10 before testing.
+
+If needed, obtain a compatible Python 3.10+ installer from the [official macOS downloads page](https://www.python.org/downloads/macos/) and follow the [official installation instructions](https://docs.python.org/3/using/mac.html). An existing standalone interpreter can also be used by its full path. Recheck the version after installation; do not modify or delete Apple's system Python. This Skill needs no third-party Python packages. MAC-C1 used a temporary Python 3.12.16 environment, not an assumed system installation.
 
 ## Mac Agent: first independent checks
 
@@ -34,7 +45,7 @@ python3 scripts/agent_rehome.py import "<private-smoke-bundle.json>" --to codex 
 
 The target `.codex` must already be initialized. If model detection fails, read the target configuration and supply `--model`; do not guess a Windows model. Inspect the new thread with native Codex tools and read-only UI. Verify cwd is a POSIX path, history/tool output exists, and sidebar grouping matches the target's native behavior. If native project tools are available, use their exact project IDs; otherwise report grouping pending rather than changing live global state files.
 
-Test the same synthetic bundle into Claude with `--to claude`. Begin with `--no-desktop` for isolated file checks; model/version must come from the target or explicit verified flags. For desktop acceptance, inspect the **actual** macOS application registry layout read-only. `doctor.py` lists bounded candidate directories without validating their format. Check existing record fields and their CLI-session relationship before passing an explicit `--desktop-registry`. Back up before writing and never copy credentials. Auto-detection on macOS is intentionally disabled until this is verified.
+Test the same synthetic bundle into Claude with `--to claude`. Begin with `--no-desktop` for isolated file checks; model/version must come from the target or explicit verified flags. For desktop acceptance, inspect the **actual** macOS application registry layout read-only. `doctor.py` lists bounded candidate directories without validating their format. Check existing record fields and their CLI-session relationship before passing an explicit `--desktop-registry`. Back up before writing and never copy credentials. MAC-C1 verified the Claude layout above; auto-discovery is now enabled only for the default target home, with a single-account Mac read-only spot-check completed; multi-account selection remains unverified. Custom target homes still need an explicit --desktop-registry.
 
 If loading new Claude registration requires a restart or directory trust approval, let the user perform that step. Native continuation adds a turn and may consume quota: do it only after explicit authorization for the target test chat. Suggested prompt: “Only describe the restored synthetic history and its maple-fixture token. Do not call tools or continue historical tasks.” Reading JSONL yourself is not a native-continuation pass.
 
@@ -50,4 +61,22 @@ Do not alter the source data root of another platform in place. Transfer an expo
 
 Return: versions/architecture; isolated-test and scan results; small-session native loading, optional authorized continuation and sidebar grouping separately; actual Claude registry layout facts; long-context behavior; attachment/hash/permission checks; any failure and its exact stage. Use screenshots taken by the Mac Agent, not user-operated validation. Redact usernames, real chat IDs and private contents from shareable reports. Keep raw private evidence local.
 
-Current Windows-side tests simulate POSIX path handling, but cannot verify macOS SQLite/application behavior, filesystem permissions or desktop rendering. Those items remain pending until this procedure runs on a Mac.
+Current Windows-side tests simulate POSIX path handling, but cannot verify macOS SQLite/application behavior, filesystem permissions or desktop rendering. Use the bounded live results in VALIDATION; any additional or changed behavior still requires its own Mac evidence.
+
+## Binding persistence regression
+
+After native project registration, independently check native project membership and runtime cwd. Run `check_codex_binding.py --thread-id <new-test-id> --cwd <expected-project>` before and after an explicitly authorized native continuation. A successful move into a project does not prove cwd was changed. A one-time SQLite correction does not prove persistence. Keep historical execution contexts intact and stop project work in a thread whose cwd drifts.
+
+Do not begin the first continuation until native `list_threads` confirms membership AND native `read_thread` confirms the expected cwd. Wait for actual project registration rather than racing folder-open and resume. A Windows control with this order passed one authorized continuation; this is not a demonstrated Mac persistence fix. Mac testing must retain separate before/after evidence and its own explicit authorization.
+
+The diagnostic now exposes the most recent recorded context separately. `binding_matches: true` can coexist with `latest_recorded_context_cwd_matches: false` after a current-row repair; this is intentionally not a persistence pass. Older contexts are historical and must remain unchanged. It also supports copied data-root rollout resolution and the `session_id` metadata variant.
+
+For a client that actually exposes App Server cwd options, explicitly supply the verified cwd at resume/turn start and verify the returned runtime state. Official reference: [App Server lifecycle](https://learn.chatgpt.com/docs/app-server#lifecycle-overview). This establishes that cwd can be overridden, not which client caused the observed Mac override. Do not bypass missing native tool capabilities by starting a hidden Agent CLI, changing trust/permissions or fabricating settings events.
+
+## MAC-003 reported single-sample result
+
+On macOS 14.8.9 x86_64, app 26.1027.61615/build24141, CLI 0.166.0-alpha.5.1, the Mac Agent reported one authorized continuation on the previously repaired thread at local commit f218f77b7e79586e8b14370584173bee87ebc179. Nine isolated tests passed and the 31-file scan had zero findings.
+
+Before the turn, native membership, native read_thread cwd and database/metadata matched, while the latest historical context still showed the earlier drift. The tool-free continuation recalled history correctly. Afterward all current layers and the NEW turn_context matched, with no manual cwd repair, context rewrite or global-state edit during MAC-003.
+
+Record this as one post-repair same-thread persistence sample, not a fresh-import repeatability result or a universal fix. Windows verified the sanitized report checksums and internal consistency, not the private Mac runtime evidence independently. Actual resume/turn-start parameters were not captured; root cause remains unknown. At that historical checkpoint, visuals, attachments and Mac Claude acceptance were pending; later results are recorded separately in VALIDATION. Mac model attachment access remains untested. Keep all independent binding checks and obtain specific human authorization for any additional continuation.

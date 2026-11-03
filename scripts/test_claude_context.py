@@ -59,6 +59,6 @@ with tempfile.TemporaryDirectory() as td:
     except ValueError:pass
     else:raise AssertionError('changed budget silently accepted')
     # Compact summaries are metadata, never new real user turns on re-export.
-    exported=r.export('claude',str(target),home)
+    exported=r.exchange.to_v1(r.export('claude',str(target),home))
     assert len(exported['turns'])==12
 print('PASS: context budget, native boundary chain, complete history/archive/tool pairs, neutral summary, oversized-last-turn fallback, short chats, policy guards, re-export')

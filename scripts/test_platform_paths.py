@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory() as directory:
     db=sqlite3.connect(sqlite_read_uri(dbpath),uri=True);assert db.execute('select count(*) from example').fetchone()[0]==0;db.close()
     assert '%23' in sqlite_read_uri(dbpath) and '%25' in sqlite_read_uri(dbpath)
     rollout=root/'sessions/2000/01/01/fixture.jsonl';rollout.parent.mkdir(parents=True);rollout.write_text('{}')
-    assert source_rollout(root,'C:\\old\\sessions\\2000\\01\\01\\fixture.jsonl')==rollout
+    assert source_rollout(root,'C:\\old\\sessions\\2000\\01\\01\\fixture.jsonl')==rollout.resolve()
     with patch.object(sys,'platform','darwin'):
         assert backend.long_path('/tmp/project')=='/tmp/project'
     report=inspect(root,system='darwin',codex_home=root/'cx',claude_home=root/'ch')
@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert not (root/'Library').exists(), 'diagnostics must not initialize application directories'
     source=root/'source';source.mkdir();(source/'run.sh').write_text('echo fixture\n')
     (source/'.DS_Store').write_text('excluded metadata')
-    package=root/'package';projects.pack('claude',source,package,root/'empty-source-home')
+    package=root/'package';projects.pack('claude',source,package,root/'empty-source-home',format_version=1)
     manifest=json.loads((package/'manifest.json').read_text(encoding='utf-8'))
     assert len(manifest['files'])==1
     manifest['files'][0]['permissions']=0o755

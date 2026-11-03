@@ -21,3 +21,42 @@ with tempfile.TemporaryDirectory() as t:
  except ValueError:pass
  else:raise AssertionError('conflicting root accepted')
 print('PASS: live registration delegates to native entry without rewriting state; native id recognition; offline preservation, backup, conflict refusal, idempotency')
+
+# Native sidebar membership can succeed while runtime cwd drifts after continuation.
+import sqlite3
+from contextlib import closing
+from check_codex_binding import inspect
+with tempfile.TemporaryDirectory() as directory:
+ home=Path(directory);rollout=home/'rollout.jsonl';target='/fixture/project'
+ rollout.write_text(json.dumps({'type':'session_meta','payload':{'id':'fixture-thread','cwd':target}})+'\n')
+ with closing(sqlite3.connect(home/'state_5.sqlite')) as db:
+  db.execute('create table threads(id text,cwd text,rollout_path text,project_id text)')
+  db.execute('insert into threads values(?,?,?,?)',('fixture-thread',target,str(rollout),'sidebar-id'))
+  db.commit()
+ before=rollout.read_bytes();assert inspect(home,'fixture-thread',target)['binding_matches']
+ with closing(sqlite3.connect(home/'state_5.sqlite')) as db:
+  db.execute('update threads set cwd=?',('/fixture/new-chat',));db.commit()
+ result=inspect(home,'fixture-thread',target)
+ assert not result['binding_matches'] and result['session_meta_cwd_matches']
+ assert not result['native_project_membership_verified'] and not result['continuation_persistence_verified']
+ assert rollout.read_bytes()==before
+ # Correcting the current database alone must not erase the observed historical drift.
+ with closing(sqlite3.connect(home/'state_5.sqlite')) as db:
+  db.execute('update threads set cwd=?',(target,));db.commit()
+ with rollout.open('a') as stream:
+  stream.write(json.dumps({'type':'turn_context','payload':{'cwd':'/fixture/new-chat'}})+'\n')
+ result=inspect(home,'fixture-thread',target)
+ assert result['binding_matches'] and result['latest_recorded_context_cwd_matches'] is False
+ assert not result['continuation_persistence_verified']
+ # A supported alternate session identifier and a copied data root still work.
+ copied=home/'copied/sessions/2000/01/01/fixture.jsonl';copied.parent.mkdir(parents=True)
+ copied.write_text(json.dumps({'type':'session_meta','payload':{'session_id':'fixture-thread','cwd':target}})+'\n')
+ copied_home=home/'copied'
+ with closing(sqlite3.connect(copied_home/'state_5.sqlite')) as db:
+  db.execute('create table threads(id text,cwd text,rollout_path text,project_id text)')
+  db.execute('insert into threads values(?,?,?,?)',('fixture-thread',target,'C:\\fixture\\sessions\\2000\\01\\01\\fixture.jsonl','unverified-id'));db.commit()
+ assert inspect(copied_home,'fixture-thread',target)['binding_matches']
+ # Conflicting IDs cannot be treated as the selected thread even with a correct cwd.
+ copied.write_text(json.dumps({'type':'session_meta','payload':{'id':'other-thread','session_id':'fixture-thread','cwd':target}})+'\n')
+ assert not inspect(copied_home,'fixture-thread',target)['binding_matches']
+print('PASS: continuation cwd drift detected without treating project IDs as native membership proof')

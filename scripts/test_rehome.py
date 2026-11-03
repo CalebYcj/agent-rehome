@@ -10,7 +10,7 @@ with tempfile.TemporaryDirectory() as tmp:
     b={'schema':'agent-transcript/v1','source':{'agent':'codex','session_id':'12345678-1234-4567-8123-123456789012','path':'fixture'},'title':'双向验证','project':{'cwd':'old'},'turns':[{'user':{'ts':'2026-11-01T00:00:00Z','text':'synthetic-fixture-token'},'items':[{'kind':'message','ts':'2026-11-01T00:00:01Z','text':'保留项目上下文'}]}]}
     reg=d/'desktop'/'org'/'acct'; reg.mkdir(parents=True)
     (reg/'local_existing.json').write_text(json.dumps({'sessionId':'local_existing','cliSessionId':'other','model':'claude-test-model','effort':'medium'}),encoding='utf-8')
-    args=lambda to,home: argparse.Namespace(cwd=str(project),target_home=str(home),to=to,dry_run=False,model='codex-test-model',claude_version='0.0.0-test',desktop_registry=str(reg),no_desktop=False)
+    args=lambda to,home: argparse.Namespace(cwd=str(project),target_home=str(home),to=to,dry_run=False,model='codex-test-model',claude_version='0.0.0-test',desktop_registry=str(reg),no_desktop=False,convert=True)
     r.import_bundle(b,args('claude',ch))
     cp=next(ch.glob('projects/*/*.jsonl')); rows=r.read(cp)
     assert rows[0]['parentUuid'] is None and rows[1]['parentUuid']==rows[0]['uuid']
@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory() as tmp:
     backups=[json.loads(p.read_text(encoding='utf-8')) for p in ch.glob('rehome-backups/registration-*/backup.json')]
     assert any(str(registry_file) in record for record in backups)
     assert len(list(reg.glob('local_*.json')))==2, '重复导入不应重复登记'
-    b2=r.export('claude',str(cp),ch); assert b2['turns'][0]['user']['text']=='synthetic-fixture-token'
+    b2=r.exchange.to_v1(r.export('claude',str(cp),ch)); assert b2['turns'][0]['user']['text']=='synthetic-fixture-token'
     # Codex ambient UI context and question-card answers: show only what the user typed/chose
     assert r.codex_user_text('<in-app-browser-context source="ambient-ui-state">\nThis block is ambient.\n</in-app-browser-context>\n\n## My request:\n合成测试请求\n')=='合成测试请求'
     assert r.codex_user_text('<send_user_message_question_reply>\n[{"question":"先测哪个？","answer":"当前项目"}]\n</send_user_message_question_reply>\n')=='回答「先测哪个？」：当前项目'
@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory() as tmp:
     tt,_=r.export_claude(tn); assert len(tt)==1 and tt[0]['items'][0]['text']=='（后台任务通知）后台完成', tt
     r.import_bundle(b2,args('codex',cx))
     rollout=next(cx.glob('sessions/**/*.jsonl'))
-    b3=r.export('codex',str(rollout),cx)
+    b3=r.exchange.to_v1(r.export('codex',str(rollout),cx))
     shape=lambda turns:[(t['user']['text'],[i['text'] for i in t['items']]) for t in turns]
     assert shape(b3['turns'])==shape(b2['turns']), (b3['turns'],b2['turns'])
     # Codex UI-layer fidelity: harness context dropped, attachment header cleaned, tools become native Claude tool cards
@@ -49,7 +49,7 @@ with tempfile.TemporaryDirectory() as tmp:
         ev('2026-11-01T01:00:05Z',{'type':'Reasoning','summary_text':[]}),
         ev('2026-11-01T01:00:06Z',{'type':'AgentMessage','phase':'final_answer','content':[{'type':'Text','text':'完成'}]}),
     ]),encoding='utf-8')
-    bc=r.export('codex',str(fx),cx)
+    bc=r.exchange.to_v1(r.export('codex',str(fx),cx))
     assert len(bc['turns'])==1 and bc['turns'][0]['user']['text']=='附件：A.md（C:/p/A.md）\n\n做个 skill', bc['turns'][0]['user']
     assert [i['kind'] for i in bc['turns'][0]['items']]==['message','tool','tool','message'] and '已截断' in bc['turns'][0]['items'][1]['output']
     r.import_bundle(bc,args('claude',ch))

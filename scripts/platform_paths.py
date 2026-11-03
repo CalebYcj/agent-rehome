@@ -56,12 +56,25 @@ def sqlite_read_uri(path):
 def source_rollout(home, stored):
     """Resolve a copied data root without trusting an obsolete absolute path."""
     home=Path(home).resolve();normalized=str(stored).replace('\\','/')
-    if '/sessions/' in normalized:
-        tail=normalized.rsplit('/sessions/',1)[1]
+    def variants(path):
+        plain=Path(str(path)[:-4]) if str(path).endswith('.jsonl.zst') else path
+        return (plain,Path(str(plain)+'.zst')) if str(plain).endswith('.jsonl') else (plain,)
+    def choose(candidates):
+        hits=list(dict.fromkeys(p for p in candidates if p.is_file() and p.resolve().is_relative_to(home)))
+        if len(hits)>1:raise ValueError('Source rollout ambiguous: multiple .jsonl/.jsonl.zst candidates in the selected source data root')
+        return hits[0] if hits else None
+    direct=Path(stored)
+    if not direct.is_absolute():direct=home/direct
+    found=choose(variants(direct))
+    if found:return found
+    for folder in ('sessions','archived_sessions'):
+        if '/'+folder+'/' not in normalized:continue
+        tail=normalized.rsplit('/'+folder+'/',1)[1]
         relative=PurePosixPath(tail)
         if relative.is_absolute() or '..' in relative.parts: raise ValueError('Unsafe source rollout path')
-        candidate=home/'sessions'/Path(*relative.parts)
-        if candidate.is_file() and candidate.resolve().is_relative_to(home): return candidate
-    hits=list((home/'sessions').rglob(portable_name(stored)))
-    if len(hits)==1: return hits[0]
-    raise ValueError('Source rollout unavailable or ambiguous in the selected source data root')
+        found=choose(variants(home/folder/Path(*relative.parts)))
+        if found:return found
+    names=[p.name for p in variants(Path(portable_name(stored)))]
+    found=choose(p for folder in ('sessions','archived_sessions') for name in names for p in (home/folder).rglob(name))
+    if found:return found
+    raise ValueError('Source rollout unavailable in the selected source data root (.jsonl and .jsonl.zst checked)')

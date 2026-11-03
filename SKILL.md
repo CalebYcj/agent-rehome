@@ -1,67 +1,69 @@
 ---
 name: agent-rehome
-description: 将 Claude Code 与 Codex 的会话和项目双向迁移为目标端原生历史，支持换机和项目路径重绑定。Migrate native Claude Code and Codex conversations and projects, including cross-computer path rebinding.
+description: 迁移 Claude Code/Codex 会话或整项目、换机及重绑定路径时使用，按同类平移或跨 Agent 转换选路。Use for Claude/Codex conversation and project migration, computer changes and path rebinding.
 ---
 
 # Agent Rehome
 
-在 Claude Code 与 Codex 之间恢复可见聊天历史，单会话可双向转换，整项目可携带文件、多个聊天及可恢复的附件。它不是桌面应用，也不是仅生成交接摘要。安装、用法和回退见 [README.md](README.md)；English: [README.en.md](README.en.md)。
+第三方迁移 Skill，Python 3.10+（压缩 Codex 来源需要可选 zstd，见 README）；先读 [README](README.md) 的安装与用法，格式边界见 [SPEC](SPEC.md)。
 
-macOS 测试候选版的诊断和验收流程见 [MAC_TEST.md](MAC_TEST.md)。跨系统路径适配已准备；本机模拟测试不能代替 Mac 原生验收。
+## 先判断路线
 
-## 前置条件与范围
+1. 确认用户指定的来源/目标 Agent、单会话或整项目、同机或跨机；不能拿最近会话代替指定来源。
+2. 同机优先共享本地路径；跨机携带固定源码和数据包。--source-home/--target-home 是数据根，不是项目目录。
+3. Claude 同类走原样平移；Codex 同类交给 ReHome；跨 Agent 走有损转换。平台有限结论见 [验收记录](docs/VALIDATION.md)。
 
-- Python 3.10+，只用标准库。目标 Agent 的数据目录应已初始化。
-- 仅在 Windows 实测：Claude Code 2.1.309、Codex CLI 0.166.0-alpha.5.1，以及对应桌面环境。其他系统/版本不保证格式兼容；先用副本和隔离目录验证。
-- 这是第三方工具，非 Anthropic 或 OpenAI 官方。导入会直接改写目标应用的数据目录；应用更新后格式可能失效。
-- 迁移范围是可见消息、历史工具调用和项目快照；不迁移账号、登录凭据、权限、加密的模型状态或不可见推理。不执行历史任务。
+### Claude → Claude
 
-## 执行流程
-
-1. 明确来源 Agent、指定会话/项目、目标 Agent、目标项目目录；不能用最近会话代替用户指定来源。跨机时明确复制来的数据目录。
-2. 先盘点和预览。单会话命令加 `--dry-run`，项目先 pack，检查 manifest 的文件、会话、附件及 skipped。数据包可能含完整私人对话和项目源码，不应公开上传。
-3. 在用户授权的迁移范围内导入。现有目标数据写前备份；不覆盖未知同 ID 会话、已变化历史或已存在恢复目录。新快照用 `--new-copy`。
-4. 模型/版本优先使用显式参数，否则读取目标配置或已有历史。识别不到时按错误提示给 `--model`，或 `--claude-model` 和 `--claude-version`；不要猜值。`--target-home` 选择目标数据根，不是项目目录。
-5. 分别验收文件校验、会话登记、原生加载/续聊、侧边栏归属和附件读取。写入成功不等于桌面已加载；未经授权不发送续聊验证消息。
-
-## 单会话
-
-以下均以本 Skill 目录为工作目录；替换尖括号内容。
-
+单会话用原生 transfer；整项目先用 project_rehome.py pack --native 打包，再 restore 到全新目录。
 ```text
-python scripts/agent_rehome.py transfer --from "claude:<session-id-or-jsonl>" --to codex --cwd "<target-project>" --dry-run
-python scripts/agent_rehome.py transfer --from "claude:<session-id-or-jsonl>" --to codex --cwd "<target-project>"
-python scripts/agent_rehome.py transfer --from "codex:<session-id-or-rollout>" --to claude --cwd "<target-project>"
+python scripts/agent_rehome.py transfer --from "claude:<id-or-jsonl>" --to claude --cwd "<existing-target-project>" --dry-run
+python scripts/project_rehome.py pack --from claude --project "<source-project>" --native --include-memory --include-checkpoints --out "<new-package>"
+python scripts/project_rehome.py restore "<native-project-package>" --to claude --cwd "<new-target-project>" --dry-run
 ```
+跨机单会话使用 agent_rehome.py export --native 加 import，完整命令见 README。
+原生历史不加摘要；只按 manifest 来源根及别名重定位顶层 cwd，保留子目录，正文/工具/thinking 字节不改。
 
-CLI export/transfer 保留完整工具数据。长会话默认使用 64000 的保守上下文预算，可用 `--claude-context-budget` / `--codex-context-budget` 调整。完整历史仍保留，续聊只加载陈述式摘要和预算内完整尾轮；细节需回看历史或读取 `.rehome/history/`。估算非官方分词，不含目标运行时新注入的系统/工具说明。
+### Codex → Codex
 
-## 整项目与换机
+使用 ReHome Desktop 的盘点、预览和恢复，或 codex-rehome-skill 自身入口；不在本 Skill 内重写。
+--convert 仅限用户明确选择的同类转换诊断，不能当作无损平移。此路线的操作命令以 ReHome 自身说明为准。
 
+### Claude ↔ Codex
+
+单会话用 transfer；整项目用 project_rehome.py pack/restore。反向迁移交换来源与目标，完整命令见 README。
 ```text
-python scripts/project_rehome.py pack --from codex --project "<source-project>" --out "<new-package-directory>"
-python scripts/project_rehome.py restore "<package-directory>" --to claude --cwd "<new-project-directory>"
-python scripts/agent_rehome.py export --from "claude:<session-id>" --source-home "<copied-claude-home>" --out "<transcript.json>"
-python scripts/agent_rehome.py import "<transcript.json>" --to codex --target-home "<target-codex-home>" --cwd "<target-project>"
+python scripts/agent_rehome.py transfer --from "claude:<id-or-jsonl>" --to codex --cwd "<existing-target-project>" --dry-run
+python scripts/project_rehome.py restore "<exchange-project-package>" --to claude --cwd "<new-target-project>" --dry-run
 ```
+先预览、检查 manifest/skipped/损失与目录，再在已有授权范围内去掉 --dry-run 执行；pack 包须全新且在来源工程外。
+转换可生成预算摘要；完整归档不等于模型加载全部历史。losses_summary、.rehome/losses/ 和 .rehome/exchange/ 保留降级证据。
 
-项目 restore 必须用全新目录，默认标题加“迁移副本”。项目包不包含 Git 历史、依赖、缓存和常见凭据配置；排除规则不等同于完整秘密扫描。附件恢复到 `.rehome/attachments` 并重映射路径。历史文本附件可能只是当时读取的片段；缺失且未嵌入历史的附件无法补回。显式会话清单可通过 pack 的 `--sessions-json` 提供，格式见 README。
+## 安全与判断边界
 
-同机协作可直接使用本地路径；跨机才需搬运目录包。源数据目录不因导入而移动或删除。
+- 不复制账号凭据、登录状态、信任或权限白名单；目标权限用 default，不把历史授权变成当前授权，不执行历史任务。
+- 跨 Agent 不恢复不可见推理或加密模型状态；Claude 原生 thinking 只作为来源历史保留，不激活来源权限。
+- 数据包含私人对话/源码，不能公开；真实聊天、原始证据和备份留私有目录，公开报告先脱敏；排除规则和秘密扫描并非穷尽，二进制旁车不扫描内容，必须报告数量与字节数。
+- 写前备份；不覆盖未知同 ID、已变化/续聊的历史、已有恢复目录或同名 memory；保留来源不移动/删除，来源历史更新后，转换路线用 --new-copy 另存快照，原生同 ID 仍拒绝；不绕过拒绝。
+- 检查包的路径、哈希和损失清单，未知事件无对应损失条目时拒绝；凭据文件名和旁车/包内符号链接仍拒绝，会话 JSONL 须合法 UTF-8，原生项目根声明的别名与此不同；项目外 cwd 原样保留，只报数量。
+- 跨 Agent 模型/版本从显式参数或目标配置/历史取得，不猜；Claude 原生版本沿用来源，自定义目标根需显式桌面登记目录。
+- 重启和目录信任由用户完成，Agent 不代点或自动关闭/重启；CLI 与桌面认证可能不同，不能复制凭据解决登录。
+- 未经对具体会话授权，不发送续聊验证；不伪造工具执行、退出码或验收证据，未知保持未知。
+- 未见过的格式、报错或拒绝时，停止依赖该操作的写入，报告原因、失败阶段和最小必要信息；保留证据，不自行改数据绕过去。
+- 回退前停止目标写入并保留新增内容；按备份清单恢复，SQLite 用在线备份，不盲目用旧共享数据库/索引覆盖其他聊天。
+- 部分失败保留 restore.json 和备份，不自动删目录或宣称整批回滚；不改运行中全局状态、循环改库/重导入或改历史来冒充成功。
 
-## 桌面加载与降级
+## 验收与能力不足
 
-**Claude：** 脚本独立写 JSONL；Windows 默认尝试查找桌面 Code 会话登记目录并写 local_ 登记。使用自定义目标数据根时，需显式 `--desktop-registry "<verified-registry-directory>"` 才登记；`--no-desktop` 可只写历史。不支持的系统或未找到目录时返回 warnings，不能声称侧边栏已恢复。其他平台的登记位置未核实。桌面版需按用户正常流程重启才加载登记；Agent 不自动关闭/重启应用。新目录需要用户确认信任，不代改信任设置。独立 CLI 的认证与桌面可能不共享，不能复制凭据。
+分别报告文件、登记、原生加载、侧边栏、续聊、权限、工作目录和附件；写入成功不等于已经加载，本机隔离测试不能代替异端原生验收。
+涉及 Codex 项目归属时，先读 [项目绑定流程](docs/CODEX_PROJECT_BINDING.md)，归组与 cwd 必须在授权续聊前后分别核对。
+缺少原生工具或登记目录时明确降级/待验收；可用 --no-desktop 写文件后交具备能力的 Agent，不扩大结论。
+跨 Agent 不保证分支、扩展或逐像素一致；Claude 文件是路径链接，Codex 文件芯片点击一致性待验收；原生正文旧绝对路径不改，复制不等于引用可用。
+显示和上下文细节、备份位置/回退见 README；损失、二进制与来源根规则见 SPEC；平台证据按需读验收记录。
 
-**Codex：** 脚本独立写 rollout、索引、数据库与归档；依赖目标已有且兼容的 state_5.sqlite。Windows 项目恢复可尝试运行中桌面程序的 folder-open 入口创建项目，不自动重启。完整项目归属还需要 Codex APP 中的 Agent 调用 `list_projects`、`move_thread_to_project` 和 `list_threads`：按精确路径取真实项目 ID，逐条绑定本批次聊天，再核对全部 ID。若会话尚不可用，先原生打开再重试一次。不要通过改写运行中全局状态冒充成功。
+## 详细参考
 
-在 Claude、终端或其他没有 Codex 原生工具的环境，可用 restore 的 `--no-desktop` 只写文件和会话，之后由用户在 Codex APP 添加恢复文件夹、关联聊天，或由具备原生工具的 Agent 完成。报告“文件/会话已写入，项目侧边栏待验收”。自动入口不可用时同样明确报告降级状态，不能把工具缺失当成文件迁移失败。
-
-## 保真与数据安全
-
-- Codex 只导出界面消息事件，过滤 harness 注入的上下文；附件头和问答卡回复转成可读文本。
-- Claude 的下一步框保留 recap、ask 和按钮 label，放在对应轮末尾；过程任务清单被过滤。后台通知不增加用户轮。
-- 历史工具写为目标原生工具记录；命令卡片显示以该版本/模式的原生会话为准。未知进程/退出码保持未知，不为界面补造运行事实。
-- 不保证分支、所有扩展事件、附件控件样式、不同版本的逐像素一致。长会话可续聊不等于模型直接加载了全部历史。
-- 导入先检查完整性与路径，数据库使用在线备份；备份路径和受管理文件清单在返回结果/目标数据根的 rehome-backups、rehome-imports 中。
-- 回退前停止目标会话写入，保留迁移后新增内容；按备份清单恢复对应文件。共享 SQLite/索引可能已有其他新聊天，不能盲目恢复整个旧数据库。恢复新目录失败时保留 restore.json 和备份供排查，不自动删除或宣称整批回滚。
+- [README 中文](README.md) / [English](README.en.md)：安装、命令、模型/版本、桌面登记、备份与回退。
+- [SPEC.md](SPEC.md)：交换格式、原生字节、来源根别名、损失、二进制旁车与旧路径限制。
+- [docs/VALIDATION.md](docs/VALIDATION.md)：平台矩阵和有边界的历史验收。
+- [docs/CODEX_PROJECT_BINDING.md](docs/CODEX_PROJECT_BINDING.md)：原生项目归属、cwd 漂移及续聊前后证据。
