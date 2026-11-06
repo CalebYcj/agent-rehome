@@ -3,6 +3,7 @@ import argparse, datetime as dt, hashlib, json, ntpath, posixpath, re, unicodeda
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from platform_paths import windows_path
 from privacy_scan import PATTERNS
+from cli_output import print
 
 SCHEMA='claude-native/v1'
 FORBIDDEN_FILES={'.claude.json','auth.json','credentials.json','.env'}
@@ -226,46 +227,116 @@ def load(directory):
     return dict(manifest,files=entries)
 
 
+def copied_id(snap,cwd):
+    old=snap['source']['session_id']
+    digest=next((item['sha256'] for item in snap['files'] if item['scope']=='project' and item['relative']==old+'.jsonl'),None)
+    if digest is None:raise ValueError('Native main session file missing')
+    return str(uuid.uuid5(uuid.UUID('6f1c2a9e-4b7d-4c1e-9a3f-c1a0dec0de01'),'claude-native-copy/'+old+'/'+cwd+'/'+digest))
+
+
+def rewrite_session_id(data,old,new):
+    """Only structured sessionId string values; message strings and other IDs stay byte-identical."""
+    decoder=json.JSONDecoder();bom=b'\xef\xbb\xbf' if data.startswith(b'\xef\xbb\xbf') else b'';output=[]
+    for line in data[len(bom):].decode('utf-8').split('\n'):
+        spans=[]
+        def walk(pos):
+            while line[pos].isspace():pos+=1
+            if line[pos] not in '{[':return decoder.raw_decode(line,pos)[1]
+            obj=line[pos]=='{';endchar='}' if obj else ']';pos+=1;keys=set()
+            while True:
+                while line[pos].isspace() or line[pos]==',':pos+=1
+                if line[pos]==endchar:return pos+1
+                key=None
+                if obj:
+                    key,pos=decoder.raw_decode(line,pos)
+                    if key in keys:raise ValueError('Duplicate structured metadata key')
+                    keys.add(key)
+                    while line[pos].isspace():pos+=1
+                    if line[pos]!=':':raise ValueError('Invalid JSON member')
+                    pos+=1
+                    while line[pos].isspace():pos+=1
+                value,end=decoder.raw_decode(line,pos)
+                if key=='sessionId' and value==old:spans.append((pos,end))
+                walk(pos);pos=end
+        if line.strip():walk(0)
+        for start,end in reversed(sorted(spans)):line=line[:start]+json.dumps(new)+line[end:]
+        output.append(line)
+    return bom+'\n'.join(output).encode('utf-8')
+
+
+def payload_writes(snap,home,cwd,sid,project,cwd_stats=None):
+    old_sid=snap['source']['session_id'];old_root,aliases=source_roots(snap['source']);writes=[]
+    for item in snap['files']:
+        relative=item['relative']
+        if item['scope'] not in ('project','file-history') or item['jsonl']!=history_file(item['scope'],relative):raise ValueError('Invalid native file type/scope')
+        allowed=(relative==old_sid+'.jsonl' or relative.startswith(old_sid+'/') or relative.startswith('memory/')) if item['scope']=='project' else relative.startswith(old_sid+'/')
+        if not allowed:raise ValueError('Native file is not owned by the selected session/project memory')
+        base=project if item['scope']=='project' else home/'file-history'
+        if not base.resolve().is_relative_to(home):raise ValueError('Native target link escapes data home')
+        mapped=sid+relative[len(old_sid):] if relative==old_sid+'.jsonl' or relative.startswith(old_sid+'/') else relative
+        target=safe(base,mapped)
+        if any(parent.exists() and not parent.is_dir() for parent in target.parents):raise ValueError('Native destination parent is a file')
+        if sha(item['data'])!=item['sha256']:raise ValueError('Native payload changed after snapshot')
+        validate_binary(item,item['data'],old_sid)
+        if item['scope']=='project' and relative==old_sid+'.jsonl':
+            rows=[json.loads(line) for line in item['data'].decode('utf-8-sig').split('\n') if line.strip()]
+            if any(row.get('sessionId') not in (None,old_sid) for row in rows):raise ValueError('Native root session identity mismatch')
+        data=rewrite_cwd(item['data'],old_root,cwd,stats=cwd_stats,aliases=aliases) if item['jsonl'] else item['data']
+        if sid!=old_sid and item['jsonl']:data=rewrite_session_id(data,old_sid,sid)
+        writes.append((target,data))
+    if sum(item['scope']=='project' and item['relative']==old_sid+'.jsonl' for item in snap['files'])!=1:raise ValueError('Native main session file missing or duplicated')
+    if len({str(path.resolve()) for path,_ in writes})!=len(writes):raise ValueError('Duplicate native destination paths')
+    return writes
+
+
+COPY_TITLE_SUFFIX = r'(?: · (?:迁移副本|项目迁移测试|新副本(?: \[.*?\])?))+$'
+
+
+def has_copy_title(title):
+    return isinstance(title,str) and bool(re.search(r' · 新副本 \[.*?\]$',title))
+
+
+def copy_title(title,cwd):
+    base=re.sub(COPY_TITLE_SUFFIX,'',(title or '').strip())
+    return f'{base} · 新副本 [{Path(cwd).name}]' if base else ''
+
+
 def plan(snap,a,cwd_stats=None):
     import agent_rehome as r
+    if getattr(a,'fast_forward',False):
+        import claude_fast_forward
+        return claude_fast_forward.plan(snap,a)[0]
     if a.to!='claude': raise ValueError('Native Claude packages are for Claude targets only')
     sid=snap['source']['session_id'];uuid.UUID(sid)
     old_root,aliases=source_roots(snap['source'])
     home=Path(a.target_home or Path.home()/'.claude').resolve();cwd=str(Path(a.cwd).resolve())
+    if getattr(a,'new_copy',False):sid=copied_id(snap,cwd)
     if not Path(cwd).is_dir() and not getattr(a,'allow_new_project',False): raise ValueError('Target project directory must exist')
-    if list((home/'projects').glob('*/'+sid+'.jsonl')) or list((home/'projects').glob('*/'+sid)):
-        raise ValueError('Target session ID already exists; refusing native overwrite')
+    hits=list((home/'projects').glob('*/'+sid+'.jsonl')) or list((home/'projects').glob('*/'+sid))
+    if hits:
+        raise ValueError(f'Target session ID already exists: {sid}; project directory: {hits[0].parent}. Refusing native overwrite. Use --new-copy for a separate session or --fast-forward only for an unchanged-prefix return.')
     encoded=re.sub(r'[^a-zA-Z0-9_-]','-',cwd);project=home/'projects'/encoded
     if not project.resolve().is_relative_to(home): raise ValueError('Target project link escapes data home')
-    writes=[]
-    for item in snap['files']:
-        relative=item['relative']
-        if item['scope'] not in ('project','file-history') or item['jsonl']!=history_file(item['scope'],relative):raise ValueError('Invalid native file type/scope')
-        allowed=(relative==sid+'.jsonl' or relative.startswith(sid+'/') or relative.startswith('memory/')) if item['scope']=='project' else relative.startswith(sid+'/')
-        if not allowed: raise ValueError('Native file is not owned by the selected session/project memory')
-        base=project if item['scope']=='project' else home/'file-history'
-        if not base.resolve().is_relative_to(home):raise ValueError('Native target link escapes data home')
-        target=safe(base,item['relative'])
-        if target.exists(): raise ValueError('Native destination or memory file already exists; refusing overwrite')
-        if any(parent.exists() and not parent.is_dir() for parent in target.parents):raise ValueError('Native destination parent is a file')
-        if sha(item['data'])!=item['sha256']: raise ValueError('Native payload changed after snapshot')
-        validate_binary(item,item['data'],sid)
-        if item['scope']=='project' and relative==sid+'.jsonl':
-            rows=[json.loads(line) for line in item['data'].decode('utf-8-sig').split('\n') if line.strip()]
-            if any(row.get('sessionId') not in (None,sid) for row in rows):raise ValueError('Native root session identity mismatch')
-        data=rewrite_cwd(item['data'],old_root,cwd,stats=cwd_stats,aliases=aliases) if item['jsonl'] else item['data']
-        writes.append((target,data))
-    if sum(item['scope']=='project' and item['relative']==sid+'.jsonl' for item in snap['files'])!=1: raise ValueError('Native main session file missing or duplicated')
+    writes=payload_writes(snap,home,cwd,sid,project,cwd_stats)
+    title=snap['title']
+    if getattr(a,'new_copy',False):
+        title=copy_title(title,cwd)
+        if title:
+            main=project/(sid+'.jsonl')
+            record=json.dumps({'type':'custom-title','sessionId':sid,'customTitle':title},ensure_ascii=False).encode('utf-8')
+            writes=[(path,data+(b'' if data.endswith(b'\n') else b'\n')+record+b'\n') if path==main else (path,data)
+                    for path,data in writes]
+    if any(target.exists() for target,_ in writes):raise ValueError('Native destination or memory file already exists; refusing overwrite')
     registry=r.desktop_registry_dir(a);registration=None
     if registry:
         for path in registry.glob('local_*.json'):
             if json.loads(path.read_text(encoding='utf-8')).get('cliSessionId')==sid: raise ValueError('Target desktop session ID already exists')
-        b={'title':snap['title'],'turns':[None]*snap['turns']};probe=argparse.Namespace(**vars(a));probe.dry_run=True
+        b={'title':title,'turns':[None]*snap['turns']};probe=argparse.Namespace(**vars(a));probe.dry_run=True
         registration=Path(r.register_desktop(b,probe,sid,cwd))
         if registration.exists(): raise ValueError('Target native desktop registration exists')
         local=registration.stem;ms=int(dt.datetime.now().timestamp()*1000)
         rec={'sessionId':local,'cliSessionId':sid,'cwd':cwd,'originCwd':cwd,'gitAnchorsFolderRealpath':cwd,
-            'title':snap['title'],'titleSource':'user','permissionMode':'default','createdAt':ms,'lastActivityAt':ms,'lastTurnEdgeAt':ms,
+            'title':title,'titleSource':'user','permissionMode':'default','createdAt':ms,'lastActivityAt':ms,'lastTurnEdgeAt':ms,
             'completedTurns':snap['turns'],'isArchived':False}
         template=snap.get('registry_template') or {}
         for k in ('model','effort'):
@@ -282,8 +353,11 @@ def plan(snap,a,cwd_stats=None):
 
 def restore(snap,a):
     import agent_rehome as r
+    if getattr(a,'fast_forward',False):
+        import claude_fast_forward
+        return claude_fast_forward.restore(snap,a)
     cwd_stats={}
-    home,cwd,writes,registration=plan(snap,a,cwd_stats=cwd_stats);sid=snap['source']['session_id']
+    home,cwd,writes,registration=plan(snap,a,cwd_stats=cwd_stats);sid=copied_id(snap,cwd) if getattr(a,'new_copy',False) else snap['source']['session_id']
     binaries=[item for item in snap['files'] if item.get('binary',False)]
     binary_bytes=sum(len(item['data']) for item in binaries)
     result={'mode':'claude-native','status':'preview' if a.dry_run else 'written','id':sid,'cwd':cwd,'files':len(writes),
@@ -304,4 +378,8 @@ def restore(snap,a):
         path.parent.mkdir(parents=True,exist_ok=True)
         with path.open('xb') as stream:stream.write(data)
     r.dump(backup/'native-result.json',{**result,'output_hashes':{str(path):sha(data) for path,data in writes}})
-    result['backup']=str(backup);print(json.dumps(result,ensure_ascii=False));return result
+    result['backup']=str(backup)
+    if registration and not getattr(a,'project_restore',False):
+        from user_next_steps import add_next_steps
+        add_next_steps(result,'claude',cwd,[copy_title(snap['title'],cwd) if getattr(a,'new_copy',False) else snap['title']])
+    print(json.dumps(result,ensure_ascii=False));return result

@@ -4,9 +4,31 @@
 
 ## 两条路线
 
-同类迁移保留来源原生数据。Codex 使用 ReHome Desktop 或 codex-rehome-skill；Claude 使用 `claude_native.py`。跨 Agent 使用下面的交换格式。显式 `--convert` 允许同类走有损转换，仅供测试、诊断。
+同类迁移保留来源原生数据。Codex 使用本 Skill 的 `codex_relocate.py`，按 ReHome 原则做字节级元数据重定位；Claude 使用 `claude_native.py`。跨 Agent 使用下面的交换格式。显式 `--convert` 允许同类走有损转换，仅供测试、诊断。
+
+### Codex 原生包 codex-native/v1
+
+rollout目标路径与codex_backend一致：sessions/YYYY/MM/DD/rollout-YYYY-MM-DDTHH-MM-SS-ID.jsonl，时间取session_meta.payload.timestamp，其次首条记录timestamp；缺失、无时区或非法值拒绝。索引和库均无标题时用首条可见用户消息前60字符，仍为空才用ID。项目预览统计文件体积、最大十文件、目录和扩展名分布及排除目录。复制前检查目标卷的容量。
+
+独立目录内 manifest.json 引用 raw/rollout.jsonl 和解压后 SHA256；.jsonl.zst 由共用只读解压器处理。JSONL 的 BOM、CRLF、空白、字段编码和未知记录保留；只修改 session_meta / turn_context 的直接 cwd、已知 workspace roots，以及当前线程的 thread_settings_applied 对应字段。声明来源根/别名内的子目录按相对位置重定位，根外 cwd 不变；workspace roots 仅保留包内来源根映射，避免授权无关目录。正文、reasoning、compacted、encrypted_content、工具参数及输出均不序列化。
+
+默认保留 ID；任何目标库、索引或 sessions/archived_sessions 同 ID 都拒绝。Codex 原生显式 --new-copy 根据来源 ID、目标目录及内容哈希生成新 ID，仅改 session_meta 中等于来源 ID 的 id/session_id 和当前线程事件的 thread_id；历史正文、工具内容及 forked_from_id 等祖先引用不改。不另存时身份字段原值保留；不同来源的metadata标识也不强制改为当前线程。重复副本仍拒绝，不覆盖。分页 history_base / forked_from_ordinal_exclusive 在包/源库出现即拒绝；没有分页切点的 legacy forked_from_id 只作来源记录保留。外部生成图片及其他本地文件引用未自动收集，manifest/result limitations 明示，不以空 losses_summary 宣称完整附件迁移。原生项目的 exchange 可见事件流为空，恢复依赖 raw-native，不可当成跨 Agent 包使用。
+
+原生snapshot标题优先取session_index.jsonl该ID最后一条记录的非空thread_name，其次数据库title、首条可见用户消息前60字符、ID；最后一条记录为空时使用后续兜底，不回取更早标题。索引读取与跨Agent导出共用codex_backend.indexed_title，避免两条路线对原生标题判断不同。显式sessions-json标题仍是调用者选定的覆盖值；旧包不会靠目标端猜测修正标题。
+
+workspace-write/on-request仅是导入时、App加载前的默认记录；App加载后按目标用户当前权限模式运行（Windows/Mac实测可变为never/disabled），不继承来源授权，也不保证持续维持导入默认值。runtime_policy_note在原生结果和项目restore.json明示，memory disabled仍独立核对；迁移不修改用户全局权限设置。
+
+目标必须先有兼容数据库。来源端只打包或列清单，接收端Agent自己恢复、写入、登记、归组、验收。按目标实际threads列写入描述字段、项目根和索引；不携带来源运行权限，目标使用workspace-write/on-request、memory disabled。不覆盖共享配置、登录或信任。App运行与离线走同一写入路径；平台登记能力和实机加载分别验收。
+
+同批线程/项目SQL在一次BEGIN IMMEDIATE事务内提交；在线备份数据库、索引，提前记录路径/哈希。备份及获取写锁共用2秒预算，超时在rollout写入之前失败；项目文件可能已复制，仍保留并写失败状态。rollout排他新建。索引通过O_APPEND一次写入完整新增块，绝不在正常流程替换文件；前检要求读到的原内容未变，后检文件身份、原字节前缀及新增块唯一完整，提交前再检一次。允许其他进程在完整块后合法追加。
+
+异常回滚本SQL事务并删除仍属于本次的完整rollout文件；仅当本次索引块仍完整、唯一且位于EOF时截去该块，保留外部改动的前缀。不重写中间索引行或截掉外部尾部，无法安全补偿/部分写入时标记database-rolled-back-files-need-review，保留现场与备份，不宣称干净回滚。文件跨进程检查不是不合作写入者的全局锁，进程中断亦不保证自动跨文件事务；不以旧共享数据库/索引覆盖别的会话。
+
+数据提交后由接收端调用codex_project_registry.register：运行中App用原生folder-open，不改运行中共享桌面状态；返回thread_binding_required，接收端再用原生项目工具绑定并检查cwd。--no-desktop返回待绑定ID，不登记。登记、信任、原生加载、续聊独立验收；来源端不代写目标home。
 
 Claude 原生包独立使用 `claude-native/v1`：manifest 含来源 ID、version、标题、安全登记模板和文件清单；`raw/project/` 保存主 JSONL、同 ID 子目录和可选 memory，`raw/file-history/` 保存可选检查点。文件按 SHA-256 核对。原生恢复不使用转换事件、不生成上下文摘要。
+
+Claude默认同ID拒绝并列出既有目录和可选路线。显式--new-copy按来源ID、主历史哈希、目标cwd生成确定新ID；只改JSONL中匹配来源ID的结构化sessionId字段（包含嵌套对象），同源目录前缀、主JSONL文件名及桌面归属；普通消息字符串、uuid/parentUuid、其他会话ID和二进制不改。新副本如有标题，在主 JSONL 末尾追加一条无 uuid 的 custom-title，标题与桌面登记相同，不进入消息父链。显式--fast-forward与new-copy互斥：定位唯一既有ID，按记录顺序比较所有非顶层cwd字段（含uuid），仅允许相同或新增尾部；追加UUID不能与旧记录重叠。保持原历史原字节和原cwd，新尾部重定位到原cwd，新旁车独占创建、已有旁车必须字节一致；相同历史无写入。备份后追加，写前后检查身份/内容变化，部分失败保留journal并人工核查，不宣称全局事务或自动整份回退。项目restore的目标文件目录仍须全新；实际每会话cwd由报告另列。
 
 ## 目录项目包
 
@@ -99,6 +121,16 @@ FORBIDDEN_FILES 中的文件名、源目录/包内符号链接、命中文本凭
 **旁车路径限制：** 文件被带到目标目录，不代表历史中的引用自动可用。JSONL 正文中指向来源位置的绝对路径（例如 Image: source: <old-session>/tool-results/x.jpg）按原样平移规则不改写；跨机后旧位置可能不存在。restore 的 warnings 明确提示这些绝对路径保持不变。需要查看旁车时按目标目录定位，不以本轮字节恢复宣称原生图片展示/附件读取已通过。
 
 这些协议检查通过只证明隔离文件处理，不能代替 Claude 桌面加载、续聊、侧边栏与实际附件验收。
+
+## 项目周边第一批
+
+项目包可带surroundings元数据（旧包没有则使用空值）：skipped、config_secret_overrides、skill_directories；v1/v2均保留此信息。项目扫描允许来源Agent的明确子集：Claude settings.json、skills/commands/agents；Codex config.toml/config.json/settings.json。Claude项目Skills也可作为目标既有目录保留。凭据文件名、settings.local、会话缓存、符号链接和未知根条目仍跳过。打包前对.mcp.json、Claude settings和Codex配置用PATTERNS['credential']扫描，只报告路径；--allow-secrets-in-config显式放行不是脱敏或凭据文件排除的豁免。
+
+恢复先验证所有包字节，再纯计算规则、Skills桥接及配置停用。源文件保留；规则目标已有就跳过：AGENTS→CLAUDE生成@AGENTS.md一行，CLAUDE→AGENTS复制并注明来源，@引用只报告。Skills整目录（含资源文件和空目录）按来源/目标名称映射，既有同名目录整体跳过，内容不重写。用户级资产不采集，报告要求另行安装。普通大项目文件仍流式复制，不一次载入全部内容；参与桥接的规则/Skills/配置在内存预检。
+
+restore.json的surroundings包含generated、skipped、manual、references、mcp_servers、config_secret_overrides、directories、user_level和warnings。服务器命令/参数只作数据报告，不含env值；命中的密钥特征在命令报告中遮蔽。所有路线的.mcp.json（含无效JSON）只原样归档到.rehome/surroundings/originals/.mcp.json，根目录不留生效副本；manual说明显式审查/批准后才手动复制回根。归档碰撞拒绝，不自动启动或代批准。Claude settings的hooks/permissions/allowedTools及已知自动启动字段从生效副本移除，完整原件归档；可执行或权限相关Codex配置保守整体隔离。隔离判断非完整配置语义解析，不承诺所有未来字段安全。跨Agent commands/子Agent仅报告，不转换；hooks脚本不自动启用，目标实际加载另验收。
+
+原件归档、生成文件、空目录均做路径/冲突预检；不覆盖包中已有目标、历史/restore元数据或归档同名文件。恢复仍要求新目录；生效配置改变的哈希和原件哈希分别由restore文件清单和包清单记录，不能要求停用后的文件与来源逐字节相同。
 
 ## Codex 来源兼容边界
 

@@ -8,6 +8,20 @@ import json,os,sqlite3,uuid
 NS = uuid.UUID("6f1c2a9e-4b7d-4c1e-9a3f-c1a0dec0de01")
 
 
+def indexed_title(home,thread_id):
+    """Read the last matching sidebar title; callers retain their own fallbacks."""
+    path=Path(home)/'session_index.jsonl';title=None
+    if not path.exists():return None
+    with path.open(encoding='utf-8-sig') as stream:
+        for line in stream:
+            if not line.strip():continue
+            record=json.loads(line)
+            if record.get('id')==thread_id:
+                value=record.get('thread_name')
+                title=value if isinstance(value,str) and value.strip() else None
+    return title
+
+
 def iso(ts):
     return ts if ts else dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
 

@@ -34,6 +34,8 @@ def inspect(home, thread_id, expected_cwd):
 
 
 if __name__=='__main__':
+    from cli_output import print,configure
+    configure()
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--codex-home',type=Path,default=Path.home()/'.codex')
     p.add_argument('--thread-id',required=True);p.add_argument('--cwd',required=True)

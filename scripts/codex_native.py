@@ -48,9 +48,10 @@ def build_rollout(thread_id,bundle,cwd,model,budget=DEFAULT_BUDGET):
         ui={'type':'UserMessage','id':str(uuid.uuid5(NS,tid+'/user')),'content':[{'type':'text','text':text,'text_elements':[]}]}
         for a in t['user'].get('attachments',[]):
             if not a.get('image'):continue
-            import base64,mimetypes
+            import mimetypes
+            from project_io import inline_image
             path=Path(a['local_path']);mime=a.get('mime') or mimetypes.guess_type(path)[0] or 'image/png'
-            provider['content'].append({'type':'input_image','image_url':'data:'+mime+';base64,'+base64.b64encode(path.read_bytes()).decode(),'detail':'original'})
+            provider['content'].append({'type':'input_image','image_url':'data:'+mime+';base64,'+inline_image(path),'detail':'original'})
             ui['content'].append({'type':'local_image','path':str(path)})
         ro.add(ts,'response_item',provider);group.append(provider)
         def ui_add(at,item,end=None):

@@ -67,8 +67,9 @@ with tempfile.TemporaryDirectory() as directory:
     # Entry points choose native relocation by default, never the converting writer.
     argv=['agent_rehome','transfer','--from','claude:'+str(file),'--to','claude','--cwd',str(dest),'--target-home',str(root/'cli-home'),'--no-desktop','--dry-run']
     with patch.object(sys,'argv',argv),patch.object(r,'import_bundle',side_effect=AssertionError('conversion used')):r.main()
-    with patch.object(sys,'argv',['agent_rehome','transfer','--from','codex:'+sid,'--to','codex','--cwd',str(dest)]):
-        fail(r.main,'ReHome Desktop')
+    import codex_relocate
+    with patch.object(sys,'argv',['agent_rehome','transfer','--from','codex:'+sid,'--to','codex','--cwd',str(dest)]),patch.object(r,'locate',return_value=file),patch.object(codex_relocate,'snapshot',return_value={}),patch.object(codex_relocate,'restore') as native_restore:
+        r.main();native_restore.assert_called_once()
     # Whole project: two native chats, shared memory copied once; no target version needed.
     otherfile.write_text(json.dumps(dict(rows[1],sessionId=other)),encoding='utf-8')
     project=root/'source-project';project.mkdir();(project/'main.txt').write_text('source code',encoding='utf-8')

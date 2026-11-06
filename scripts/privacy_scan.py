@@ -33,6 +33,8 @@ def scan(root):
 
 
 def main():
+    from cli_output import print,configure
+    configure()
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('directory',type=Path);args=parser.parse_args()
     if not args.directory.is_dir(): parser.error('Directory does not exist')
     result=scan(args.directory);print(json.dumps(result,ensure_ascii=False,indent=2));return bool(result['hits'])

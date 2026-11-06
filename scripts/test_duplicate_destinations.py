@@ -27,9 +27,9 @@ with tempfile.TemporaryDirectory() as directory:
         kwargs=dict(home=target_home,no_desktop=True,convert=to=='claude',model='fixture-model',claude_model='fixture-model',claude_version='0.0.0-test')
         with contextlib.redirect_stdout(io.StringIO()):preview=p.restore(package,dest,to,dry_run=True,**kwargs)
         assert not dest.exists() and preview['deduplicated'][0]['source_count']==2
-        copy=shutil.copy2;digest=p.r.digest
-        with patch.object(p.shutil,'copy2',wraps=copy) as copies,patch.object(p.r,'digest',wraps=digest) as hashes,contextlib.redirect_stdout(io.StringIO()):state=p.restore(package,dest,to,**kwargs)
-        assert len([call for call in copies.call_args_list if Path(call.args[1])==target])==1
+        copy=p.write_checked;digest=p.r.digest
+        with patch.object(p,'write_checked',wraps=copy) as copies,patch.object(p.r,'digest',wraps=digest) as hashes,contextlib.redirect_stdout(io.StringIO()):state=p.restore(package,dest,to,**kwargs)
+        assert len([call for call in copies.call_args_list if Path(call.args[0])==target])==1
         assert len([call for call in hashes.call_args_list if Path(call.args[0])==target])==1
         assert target.read_bytes()==data and len(list((dest/'.rehome/attachments').iterdir()))==1
         assert [f['path'] for f in state['files']].count(rel)==1

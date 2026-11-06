@@ -2,7 +2,7 @@
 
 Claude Code ↔ Codex 原生聊天与项目迁移 Skill。保留可见历史，让目标端能加载并接着聊；支持多个会话、项目文件、历史附件和换电脑后的项目路径重绑定。
 
-版本 **0.4.0-preview.1** · [English](README.en.md) · [MIT](LICENSE)
+版本 **0.4.0-preview.9** · [English](README.en.md) · [MIT](LICENSE)
 
 第三方工具，非 Anthropic 或 OpenAI 官方。它会直接写入应用数据目录，应用升级可能改变格式。先备份，在副本中预览；不要把包含私人历史的迁移包上传到公开仓库。
 
@@ -13,6 +13,26 @@ Claude Code ↔ Codex 原生聊天与项目迁移 Skill。保留可见历史，�
 平台矩阵和有限样本统一见 [docs/VALIDATION.md](docs/VALIDATION.md)；Codex 项目归属与 cwd 漂移流程见 [docs/CODEX_PROJECT_BINDING.md](docs/CODEX_PROJECT_BINDING.md)。不要将某次样本通过扩大为全部平台通过。
 
 同类默认走原样平移，跨 Agent 走 [agent-exchange/v2](SPEC.md)，包含可追溯损失清单。新项目包按引用保存事件、附件、分支，仍可读取旧 v1 包。跨 Agent 转换仍可能生成预算摘要；Claude 原样平移不生成新摘要、不压缩历史。
+
+### Codex 原样迁移用法（Windows 和 macOS 有限样本通过）
+
+本 Skill 按 ReHome 原则实现同类平移。来源端只打包或列出需要迁移的项目、会话、文件；接收端 Agent 自己恢复、写入、登记、归组并验收。先初始化目标 Codex 数据库；Codex 可以在 App 运行时自己恢复，也支持同一条路径离线写入，不要求另一 Agent 代写。Windows/macOS 原生加载分别验收，不能沿用 ReHome App 的旧结论。
+
+```text
+python scripts/agent_rehome.py transfer --from "codex:<id-or-rollout>" --source-home "<source-codex-home>" --to codex --target-home "<target-codex-home>" --cwd "<existing-target-project>" --dry-run
+python scripts/agent_rehome.py export --from "codex:<id-or-rollout>" --source-home "<source-codex-home>" --native --out "<new-native-package>"
+python scripts/agent_rehome.py import "<native-package>" --to codex --target-home "<target-codex-home>" --cwd "<existing-target-project>" --dry-run
+python scripts/project_rehome.py pack --from codex --project "<source-project>" --source-home "<source-codex-home>" --native --out "<new-project-package>"
+python scripts/project_rehome.py restore "<new-project-package>" --to codex --target-home "<target-codex-home>" --cwd "<new-target-project>" --dry-run
+```
+
+核对预览后去掉 --dry-run。同 ID 默认拒绝；同机另存必须显式加 --new-copy，仅重映射归属 ID。reasoning、压缩及加密状态保留原字节；分页依赖明确拒绝；外部生成图片/本地引用未自动收集。包内 limitations、备份和失败阶段见 [SPEC](SPEC.md)。异常回滚会话事务；项目文件保留并记失败，不承诺中断后自动整批回退。项目登记与续聊按绑定文档另验收。
+
+原生写入在线备份后，SQLite写锁等待预算2秒；索引只追加，追加前核对原内容，追加后核对原前缀和完整新增行，rollout独占新建。并发冲突会回滚SQL及本次文件；索引仅在本次完整追加块仍位于末尾时自动撤销，有其他尾部数据或部分写入就保留现场并在备份manifest标记人工核查，不覆盖共享索引/数据库。App运行时通过原生folder-open登记，结果的thread_binding_required列出待原生绑定的线程；--no-desktop只写会话。目录信任仍由用户完成，Agent不操作安全弹窗或重启App。
+
+项目预览列出文件数、逻辑字节数、最大的10个文件、按顶层目录及扩展名分布、排除目录体积。预览阶段不读取会话正文。原生 Codex rollout 按来源时间写入 sessions/YYYY/MM/DD/rollout-时间-ID.jsonl；来源元数据及首记录均无时间时拒绝，不用当前时间补造。
+
+Codex 原生标题优先取 session_index 最后一条 thread_name，再取数据库 title、首条可见用户消息前60字符、ID；数据库旧 title 可能不是侧边栏显示值。--new-copy 同时更新当前 session_meta 中匹配来源 ID 的 id/session_id，正文、工具输出和祖先引用仍保持原字节。旧导入副本不原地修补，修复后需新包、新目标重新验收。
 
 ### Claude 原样迁移用法
 
@@ -26,11 +46,39 @@ python scripts/project_rehome.py restore "<project-package>" --to claude --targe
 
 预览确认后移除 `--dry-run` 执行。默认不带 memory/检查点；同名 memory 或同会话 ID 拒绝覆盖，同机应使用隔离目标根。保留原生 JSONL、同 ID 子目录、thinking 和工具字节，只改顶层 cwd。源已有压缩保留，源 version 不改，因此空白目标无须另填版本。
 
-可用 `--source-desktop-registry` 指定来源登记，`--desktop-registry` 指定已核实的目标登记目录。默认来源目录仅在使用本机默认 Claude 根时尝试 Windows / macOS 自动发现（Mac 范围限 MAC-C1 已核实布局）；复制来的数据根需显式提供。登记只继承 title/model/effort，源 permissionMode 留作来源说明，目标为 default；不复制登录、信任和白名单。会话同名目录的二进制旁车与可选二进制检查点可按原字节携带，manifest 标记 binary=true；非 UTF-8 二进制不扫描内容凭据，结果 warnings 报告数量和字节数。能解码的文本仍做凭据检查，凭据文件名和符号链接仍拒绝；会话 JSONL 必须是合法 UTF-8。历史正文里指向旧位置的绝对旁车路径不改，warnings 会提示，文件已携带不等于图片引用在新电脑可用。脚本不自动重启应用。
+Claude原生往返遇到同ID时可二选一：`--new-copy`按来源ID、主历史哈希和目标cwd确定新ID，改写结构化sessionId值（仅匹配来源ID），同步命名会话/旁车/检查点目录和桌面登记；正文里旧ID/绝对路径及二进制字节保持不变。已有原会话不改。`--fast-forward`只用于现有记录是传入记录的前缀：逐行比较所有非cwd字段及uuid顺序，拒绝分叉和冲突旁车；相同历史返回unchanged，新增行仅追加到原会话所在项目，保持其原cwd，已有旁车只核对，新旁车独占创建。两参数互斥，跨Agent不支持快进。
+
+```text
+python scripts/project_rehome.py restore "<native-claude-project-package>" --to claude --new-copy --cwd "<new-project-copy>" --dry-run
+python scripts/project_rehome.py restore "<native-claude-return-package>" --to claude --fast-forward --cwd "<new-project-files-copy>" --dry-run
+```
+
+快进预览列出每条会话将追加的行数；项目文件仍复制到全新--cwd，历史却回到已存在的原会话，restore.json.sessions[].cwd分别记录实际位置。只需单会话快进可用agent_rehome.py import/transfer的同名参数。写前保留原历史备份及journal，写前后检查并发变化；不重写旧行、不整份恢复旧历史。部分失败保留新旁车/现场并标partial-write-needs-review，不保证跨进程全局事务或自动回滚；检查证据后再决定下一步，禁止盲目重试。原桌面登记继续沿用。快进预演与写入都检测目标会话进程。仅 `live_process_check=clear` 可继续。检测不可用时预演警告，正式写入停止。有运行进程时，由用户在应用内停止该会话或退出并重开应用，再重新预演。clear 表示在命令行和会话进程记录中均未发现运行进程，检测范围有限。如果这条会话仍在其他地方打开，例如终端，请先关闭它，再重新预演。快进成功后可打开原会话续聊。续聊后核对第一条新提问的 parentUuid 是否指向追加历史最后一条带 UUID 的记录。
+
+CLI统一使用UTF-8输出，旧控制台无法编码时转义不可编码字符；已完成写入不因私用区/中文字符的输出编码失败而误报失败。若restore.json.filename_warnings提示私用区路径，可能是旧搬运文件名解码损伤，脚本保留原名，不猜测改名。
+
+可用 `--source-desktop-registry` 指定来源登记，`--desktop-registry` 指定已核实的目标登记目录。默认来源目录仅在使用本机默认 Claude 根时尝试 Windows / macOS 自动发现（macOS 范围限已核实的登记布局）；复制来的数据根需显式提供。登记只继承 title/model/effort，源 permissionMode 留作来源说明，目标为 default；不复制登录、信任和白名单。会话同名目录的二进制旁车与可选二进制检查点可按原字节携带，manifest 标记 binary=true；非 UTF-8 二进制不扫描内容凭据，结果 warnings 报告数量和字节数。能解码的文本仍做凭据检查，凭据文件名和符号链接仍拒绝；会话 JSONL 必须是合法 UTF-8。历史正文里指向旧位置的绝对旁车路径不改，warnings 会提示，文件已携带不等于图片引用在新电脑可用。脚本不自动重启应用。
 
 跨 Agent 返回 `losses_summary`，详细清单在 `.rehome/losses/`，完整标准事件对象在 `.rehome/exchange/`；项目结果 `.rehome/restore.json` 汇总来源降级和目标摘要。附件字节恢复不保证原生控件完全一致，不自动消除同一来源行的所有附件降级记录。未知事件没有对应损失条目时拒绝。
 
 ## 要求和支持范围
+
+### 大项目、引用清单和 Git
+
+完整复制以可用磁盘容量为限。打包和恢复按卷估算新增文件、附件、历史及备份的写入需求，并额外预留 64 MiB。失败时显示缺少的字节数。容量按逻辑字节估算，稀疏文件在目标上可能占用完整空间，检查结果也会受其他进程随后写入影响。旧命令的 `--allow-large` 仍可传入。
+
+超大项目建议把项目文件自行搬到目标机，再让 Skill 打包会话、可迁移的规则和配置、技能及附件。引用清单保存相对路径、字节数和 SHA-256。接收端指向已经搬好的目录，报告 `missing`、`extra`、`different`。比较范围采用与来源相同的排除规则，已有项目文件保留，缺少的周边可补齐。默认继续，`--strict-files` 在发现差异时阻止写入。引用包两端都应使用 preview.2 或兼容版本。
+
+```text
+python scripts/project_rehome.py pack --from codex --project "<source>" --out "<package>" --native --files reference
+python scripts/project_rehome.py restore "<package>" --to codex --cwd "<already-copied-project>" --strict-files --dry-run
+```
+
+默认排除 `.git`，可通过 `--include-git` 纳入真实 Git 目录。完整复制模式携带 Git 数据，引用模式将其纳入清单。预览单列 Git 字节数。含凭据迹象的远程 URL 或 Git 配置会被拒绝，先清理源配置再打包。工作树的 `.git` 指针文件不携带。
+
+项目和附件文件按块传输。跨 Agent 项目恢复对超过 16 MiB 的图片保留文件链接及原始字节，小图沿用原生内嵌显示。会话本身的 JSON、原生历史和旁车仍遵循对应写入器的格式及内存需求。项目周边的结构化配置使用独立的 8 MiB 解析预算。
+
+发布 ZIP 采用 ZIP64 与 UTF-8 文件名标志，`CHECKSUMS.json` 覆盖除清单自身外的全部发布文件。
 
 - Python 3.10+；未压缩会话只需标准库，压缩 Codex rollout 的可选依赖见下。
 - 目标 Agent 已初始化，Codex 目标应已有兼容的 `state_5.sqlite`。
@@ -50,7 +98,7 @@ zstd 只在压缩来源出现时需要：依次使用 Python 3.14+ 的 compressi
 
 需要可实际运行的 Python 3.10 或以上。macOS 默认可能没有可用 Python；出现 python3 命令也不代表环境已准备好，某些机器的系统命令只会提示安装开发者工具。先运行 `python3 --version`，确认版本至少 3.10。
 
-没有合适版本时，可从 [Python 官方 macOS 下载页](https://www.python.org/downloads/macos/) 获取与本机系统兼容的 Python 3.10+ 安装包，按[官方安装说明](https://docs.python.org/3/using/mac.html)安装；已有独立 Python 环境也可直接使用其完整解释器路径。安装后重新核对版本，再运行本 Skill。不修改或删除系统自带 Python；未压缩会话无需第三方包；压缩会话的解压方式见下。MAC-C1 使用的是临时 Python 3.12.16，该结果不代表 macOS 自带此环境。
+没有合适版本时，可从 [Python 官方 macOS 下载页](https://www.python.org/downloads/macos/) 获取与本机系统兼容的 Python 3.10+ 安装包，按[官方安装说明](https://docs.python.org/3/using/mac.html)安装；已有独立 Python 环境也可直接使用其完整解释器路径。安装后重新核对版本，再运行本 Skill。不修改或删除系统自带 Python；未压缩会话无需第三方包；压缩会话的解压方式见下。早期 macOS 样本使用的是临时 Python 3.12.16，该结果不代表 macOS 自带此环境。
 
 ## 安装
 
@@ -123,16 +171,26 @@ python scripts/project_rehome.py restore "<package-directory>" --to codex --cwd 
 
 这会独立恢复文件和会话；之后在 Codex APP 中添加恢复文件夹并关联聊天，或交给具备原生工具的 Agent。未完成分组时应报告“文件与历史已写入，侧边栏待验收”，不能报告完整恢复成功。
 
+Codex 项目要跨 Agent 转换，请用不带 `--native` 的 `pack` 生成交换包，再用 `restore --convert`。Codex 原生项目包没有可直接转换的中立事件。
+
 ## 保留与已知限制
+
+- Codex 同类恢复的有限样本保留压缩记录且可以续聊。尚未证明模型解开了其中的加密内容。压缩需由用户在应用中手动触发，本工具不触发压缩。
+- 跨账号迁移未验证。Codex 的 Skill 目录在已测续聊中未刷新，跨机历史仍记录来源机路径。
+
+- 项目 `.claude/` 只收集 settings.json、skills、commands、agents；项目 `.codex/` 只收集 config.toml/config.json/settings.json。settings.local、凭据、缓存和未知目录跳过并报告；用户级规则、Skills、插件不收集。
+- 跨 Agent 在目标缺失时桥接逐目录规则：Codex→Claude 生成 `@AGENTS.md` 引用；Claude→Codex 生成注明来源的 AGENTS.md 副本，`@` 引用只列出、不展开。Skills按目录复制，保留源文件，目标已有同名目录跳过；工具名未转换。所有生成/跳过项见 `.rehome/restore.json` 的 `surroundings`。
+- `.mcp.json` 在同Agent及跨Agent恢复时均原样归档到 `.rehome/surroundings/originals/.mcp.json`，项目根不留生效副本，避免目标应用信任目录后自动连接。报告服务器及启动命令，不列环境变量值；如需启用，用户明确审查/批准后手动复制回项目根，恢复不代启用。Claude settings 的 hooks、来源权限和已知自动启动字段从生效副本移除；含可执行或权限字段的 Codex 配置整体隔离。跨Agent commands/子Agent只提示，不转换；hooks脚本不自动启用，应用加载另验收。
+- `.mcp.json`、Claude settings 和 Codex 项目配置在打包前用现有密钥特征扫描；命中拒绝且不创建包。明确使用 `--allow-secrets-in-config` 可允许该配置进入私有包，覆盖清单会记录路径；原字节仍可能含密钥，不能公开。这不是完整秘密检测，也不会安装用户级工具或插件。
 
 - 验收只限 [已记录的平台、版本和样本](docs/VALIDATION.md)，不保证所有历史、扩展、分支或逐像素一致。第三方工具直接写应用数据，应用更新后格式可能失效。
 - `.jsonl.zst` 需要可选解压器：Python 3.14+ 的 compression.zstd、zstandard 或系统 zstd；缺少时明确报错，不静默跳过压缩会话。解压在内存中完成。
 - 数据库盘点只读取所选 Codex 数据根内的会话，不跟随根外路径读取手动移走的冷存档；整项目不会把这类根外记录算作成功。显式提供根外单会话文件路径属于另一个明确来源选择。
 - 无可识别可见消息的来源：单会话导出拒绝，跨 Agent 项目 pack 写入 skipped；检查每项原因，不能将其视为空聊天或整批成功。
-- 跨 Agent 不恢复不可见推理、加密压缩记录、系统注入或账号/工具权限；降级见 losses_summary 和详细损失清单。历史授权、待办不会变成恢复后的执行指令。Claude 同类原样历史字节保留规则另见 SPEC。
+- 跨 Agent 保留可见历史，跳过来源压缩摘要并丢弃加密压缩项；不可见推理、系统注入和账号或工具权限也不恢复。详见损失清单。历史授权、待办不会变成恢复后的执行指令。Claude 同类原样历史字节保留规则另见 SPEC。
 - Claude 原样平移不改正文中的旧绝对路径，例如旧截图路径；旁车字节已复制不保证这些引用在新电脑可用。
 - Claude 目标的文件附件显示为文字路径链接，保留来源“提到文件”的语义，不生成原生附件卡片或伪造 Read 缓存。文件内容需目标模型按路径读取，可能只保留来源文本快照片段。
-- Codex 目标文件显示为原生文件芯片；本机点击曾打开终端，与原生文件点击的一致性未验证，不能保证打开编辑器或预览。图片有缩略图/预览的 Windows 样本通过，Mac 模型附件访问仍未实测。
+- Codex 目标文件显示为原生文件芯片；本机点击曾打开终端，与原生文件点击的一致性未验证，不能保证打开编辑器或预览。图片缩略图、附件点击和项目归组显示的界面证据有限。macOS 已有同类恢复后模型看内嵌图的样本。
 - 长会话跨 Agent 可能依靠预算摘要；早期主题和细节的把握可能偏弱。完整归档在 `.rehome/history/`，不等于模型加载了全部历史，额度估算不是官方分词。
 - 重启 Claude 桌面版和确认目录信任由用户完成，工具不代点或自动重启；上层目录信任能否覆盖子目录、多账号登记目录仍待验收。
 - 不迁移凭据或 Git 历史。源文件不移动/删除，未知冲突拒绝覆盖；本工具不会自动回滚失败批次。

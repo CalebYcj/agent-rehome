@@ -1,10 +1,12 @@
 # Codex 项目归属与工作目录验收
 
-涉及Codex项目归属时先读本文件。以下流程从原SKILL搬出，权限边界和验收口径不变。Codex同类迁移使用ReHome；本流程用于检查目标Codex会话，不能据此绕过同类迁移路由或发送续聊。
+涉及Codex项目归属时先读本文件。来源端只打包/列清单，接收端Agent自己恢复、写入、登记、归组及验收；Codex同类使用本Skill的原生平移，可以在App运行时写入。原生项目工具和文件检查仍需分别取证，本文不授权额外续聊或绕过拒绝。
 
 ## 桌面登记与能力降级（原文）
 
-**Codex：** 脚本独立写 rollout、索引、数据库与归档；依赖目标已有且兼容的 state_5.sqlite。Windows 项目恢复可尝试运行中桌面程序的 folder-open 入口创建项目，不自动重启。完整项目归属还需要 Codex APP 中的 Agent 调用 `list_projects`、`move_thread_to_project` 和 `list_threads`：按精确路径取真实项目 ID，逐条绑定本批次聊天，再核对全部 ID。若会话尚不可用，先原生打开再重试一次。不要通过改写运行中全局状态冒充成功。
+零会话的Codex项目恢复也会尝试登记，结果写入restore.json的desktop_project_registry；不为登记伪造会话或新建目标数据库。--no-desktop不调用登记，dry-run不产生登记副作用。没有待绑定会话时thread_binding_required为[]，仍须独立核对registered及原生项目列表；空列表不代表登记成功。Windows运行中走既有folder-open，Mac自动入口不可用时明确返回待验收，不能用Windows成功替代Mac证据。
+
+**Codex：** 脚本独立写 rollout、索引、数据库与归档；依赖目标已有且兼容的 state_5.sqlite。Windows 项目恢复可尝试运行中桌面程序的 folder-open 入口创建项目，不自动重启。完整项目归属还需要 Codex APP 中的 Agent 调用 `list_projects`、`move_thread_to_project` 和 `list_threads`：按精确路径取真实项目 ID，先按会话 ID 原生打开，再逐条绑定本批次聊天，最后核对全部 ID。若首次移动提示任务不在侧边栏，按 ID 打开后重试一次。不要通过改写运行中全局状态冒充成功。
 
 在 Claude、终端或其他没有 Codex 原生工具的环境，可用 restore 的 `--no-desktop` 只写文件和会话，之后由用户在 Codex APP 添加恢复文件夹、关联聊天，或由具备原生工具的 Agent 完成。报告“文件/会话已写入，项目侧边栏待验收”。自动入口不可用时同样明确报告降级状态，不能把工具缺失当成文件迁移失败。
 
@@ -26,6 +28,12 @@ python -B scripts/check_codex_binding.py --thread-id "<new-test-thread-id>" --cw
 
 在任何授权续聊前，必须先取得原生项目归属与原生 read_thread.cwd 均正确的证据；不能把归组和首次续聊并发发起。没有可核实的原生工具时报告待验收。官方 App Server 的轮次接口允许覆盖 cwd；仅当实际调用方和当前版本支持时显式传入核实过的目标目录。没有暴露 cwd 参数的工具不能靠提示词、编造元数据或另开隐藏 CLI 代替。Windows 的一次“先归组再续聊”检查通过；Mac 后续也回传了修复后同一会话的一次授权续聊通过。两者均不足以证明该顺序能消除所有漂移；任何新续聊仍需对具体目标会话取得授权。
 
+## 规则与 Skill 目录
+
+已验收的 Codex 会话只在第一轮记录 Skill 目录，同机续聊和恢复后均未刷新。跨机后历史里的目录仍指向来源机，原生迁移保留这些历史路径。AGENTS.md 每轮重新注入。详见主交接第 121 节。
+
 ## 回执口径
+
+导入器写入workspace-write/on-request、memory disabled只是加载前的保守默认值，不是持续运行策略。App加载后按目标用户当前权限模式恢复；Windows/Mac样本均观察到记录变为never/disabled。加载前后策略要单独报告，不能把用户当前模式误诊为来源权限被激活，也不能宣称导入默认值始终有效；restore.json.runtime_policy_note记录此边界。无需为迁移修改用户全局权限模式。
 
 分别报告文件/数据库记录、原生项目ID、read_thread.cwd、历史上下文、授权续聊前后状态；检查工具缺失的项目写待验收，不凭数据库字段或一次成功样本扩大结论。样本记录见 [VALIDATION.md](VALIDATION.md)，安装及恢复命令见 [README.md](../README.md)。

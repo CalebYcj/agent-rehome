@@ -1,10 +1,12 @@
 """agent-exchange/v2 canonical events and an explicit v1 writer adapter."""
-import copy, hashlib, json, platform, uuid
+import copy, hashlib, html, json, platform, re, uuid
 from pathlib import Path, PurePosixPath
+from project_io import digest as file_digest
 
 SCHEMA='agent-exchange/v2'
 NS=uuid.UUID('6f1c2a9e-4b7d-4c1e-9a3f-c1a0dec0de01')
-KINDS={'user_message','assistant_message','tool_call','tool_result','reasoning','compaction','notice','ext'}
+INPUT_KINDS={'user_message','delegated_input'}
+KINDS=INPUT_KINDS|{'assistant_message','tool_call','tool_result','reasoning','compaction','notice','ext'}
 REASONS={'unsupported_by_target','encrypted','harness_injected','sensitive','missing_file'}
 ACTIONS={'dropped','textified','summarized','kept_raw_only'}
 CLAUDE_HARNESS_ATTACHMENTS={'environment','model','deferred_tools','deferred_tools_delta','deferred_tools_record',
@@ -12,6 +14,26 @@ CLAUDE_HARNESS_ATTACHMENTS={'environment','model','deferred_tools','deferred_too
     'session_context','date','credential_org','remote_session_change','prompt_snapshot','silent_turn_reminder',
     'queued_command','command_permissions','edited_text_file','invoked_skills','hook_additional_context','instructions',
     'nested_memory','thinking_drop'}
+
+
+CLAUDE_REMINDER = re.compile(r'<system-reminder>.*?</system-reminder>', re.DOTALL)
+CLAUDE_CROSS_SESSION = re.compile(r'<cross-session-message\b([^>]*)>(.*?)</cross-session-message>', re.DOTALL)
+CLAUDE_LAUNCH = re.compile(
+    r'Background \(from the session that started this one\):\s*(.*?)\n[ \t]*Task:[ \t]*\n?(.*)', re.DOTALL)
+
+
+def claude_user_projection(content):
+    text = content if isinstance(content, str) else '\n'.join(
+        block.get('text', '') for block in content or [] if block.get('type') == 'text')
+    text, removed = CLAUDE_REMINDER.subn('', text)
+    cross = CLAUDE_CROSS_SESSION.fullmatch(text.strip())
+    if cross:
+        name = re.search(r"""(?:^|\s)from-name=(["'])(.*?)\1""", cross[1], re.DOTALL)
+        return cross[2].strip(), {'source_session_name': html.unescape(name[2]) if name else '未命名会话'}, removed
+    launch = CLAUDE_LAUNCH.fullmatch(text.strip())
+    if launch:
+        return launch[2].strip(), {'source_session_name': '启动会话', 'delegated_background': launch[1].strip()}, removed
+    return text.strip() if removed else text, {}, removed
 
 
 def digest(data): return hashlib.sha256(data).hexdigest()
@@ -37,6 +59,10 @@ def raw_refs(path,rows):
 def audit_source(agent,rows,refs):
     """Account for every intentionally omitted/degraded source category, without copying credentials."""
     events=[];losses=[]
+    receipt_copies=set()
+    if agent=='codex':
+        from agent_rehome import codex_delegations
+        _,receipt_copies=codex_delegations(rows)
     def add(n,kind,reason,action,event_kind='ext',data=None,branch='main',block=None):
         ref=dict(refs[n]);ref.update({'block':block} if block is not None else {})
         identity=str(uuid.uuid5(NS,json.dumps([ref,kind,branch],sort_keys=True)))
@@ -72,6 +98,10 @@ def audit_source(agent,rows,refs):
             elif typ not in ('user','assistant','custom-title'):
                 add(n,typ,'unsupported_by_target','dropped')
             content=(row.get('message') or {}).get('content')
+            if typ=='user' and not any(row.get(flag) for flag in ('isMeta','isSidechain','isCompactSummary')):
+                _,_,removed=claude_user_projection(content)
+                for index in range(removed):
+                    add(n,'user_system_reminder','harness_injected','dropped',block=index)
             if isinstance(content,str) and content.lstrip().startswith('<task-notification>'):
                 add(n,'task_notification','harness_injected','textified',event_kind='notice')
             for j,block in enumerate(content if isinstance(content,list) else []):
@@ -118,7 +148,7 @@ def audit_source(agent,rows,refs):
                     for j,block in enumerate(item.get('content',[])):
                         if block.get('type')=='local_image':add(n,'image_attachment','unsupported_by_target','dropped',block=j)
                         elif block.get('type') not in ('text','Text'):add(n,'user_content_'+block.get('type','unknown'),'unsupported_by_target','dropped',block=j)
-                elif kind not in ('AgentMessage','CommandExecution','McpToolCall'):
+                elif n not in receipt_copies and kind not in ('AgentMessage','CommandExecution','McpToolCall'):
                     add(n,str(kind),'unsupported_by_target','textified')
             elif typ=='event_msg':
                 kind=payload.get('type','unknown')
@@ -148,7 +178,11 @@ def upgrade_v1(bundle):
             result['events'].append({'id':identity,'parent_id':result['events'][-1]['id'] if result['events'] else None,
                 'seq':len(result['events']),'ts':at,'turn_id':turn_id,'branch':'main','kind':kind,
                 'raw_ref':copy.deepcopy(ref) if ref else None,**data})
-        emit('user_message',{'text':turn['user']['text'],'attachments':copy.deepcopy(turn['user'].get('attachments',[]))},turn['user']['ts'],turn['user'].get('_raw_ref'))
+        user=turn['user']
+        data={'text':user['text'],'attachments':copy.deepcopy(user.get('attachments',[]))}
+        data.update({key:user[key] for key in ('source_thread_id','source_session_name','delegated_background') if key in user})
+        emit('delegated_input' if {'source_thread_id','source_session_name'} & data.keys() else 'user_message',
+             data,user['ts'],user.get('_raw_ref'))
         for j,item in enumerate(turn['items']):
             ref=item.get('_raw_ref');at=item['ts']
             if item['kind']=='message':emit('assistant_message',{'text':item['text'],'phase':item.get('phase')},at,ref)
@@ -195,7 +229,14 @@ def validate(bundle):
             raise ValueError('Unknown event kind without matching loss record')
         if (kind in ('reasoning','compaction','notice','ext') or event.get('branch','main')!='main') and not covered(event,losses):
             raise ValueError('Projected extension/branch requires a matching loss record')
-        if kind in ('user_message','assistant_message') and not isinstance(event.get('text'),str): raise ValueError('Message text must be a string')
+        if kind in INPUT_KINDS|{'assistant_message'} and not isinstance(event.get('text'),str): raise ValueError('Message text must be a string')
+        if kind=='delegated_input':
+            if 'source_thread_id' in event:
+                uuid.UUID(event['source_thread_id'])
+            elif not isinstance(event.get('source_session_name'),str) or not event['source_session_name']:
+                raise ValueError('Delegated input requires source attribution')
+            if 'delegated_background' in event and not isinstance(event['delegated_background'],str):
+                raise ValueError('Invalid delegated background')
         if kind=='tool_call':
             if not event.get('call_id') or event['call_id'] in calls: raise ValueError('Missing/duplicate call ID')
             if not isinstance(event.get('name'),str) or not isinstance(event.get('args',{}),dict):raise ValueError('Invalid tool call payload')
@@ -216,9 +257,13 @@ def to_v1(bundle):
     validate(bundle);turns=[];calls={};extras=[]
     for event in bundle['events']:
         kind=event['kind'];ref=event.get('raw_ref')
-        if event.get('branch','main')!='main' or kind not in ('user_message','assistant_message','tool_call','tool_result'):
+        if event.get('branch','main')!='main' or kind not in INPUT_KINDS|{'assistant_message','tool_call','tool_result'}:
             extras.append(copy.deepcopy(event));continue
-        if kind=='user_message':turns.append({'user':{'ts':event['ts'],'text':event['text'],'attachments':copy.deepcopy(event.get('attachments',[])),'_raw_ref':ref},'items':[]})
+        if kind in INPUT_KINDS:
+            user={'ts':event['ts'],'text':event['text'],'attachments':copy.deepcopy(event.get('attachments',[])),'_raw_ref':ref}
+            if kind=='delegated_input':
+                user.update({key:event[key] for key in ('source_thread_id','source_session_name','delegated_background') if key in event})
+            turns.append({'user':user,'items':[]})
         elif kind=='assistant_message':
             if not turns: raise ValueError('Assistant event without a user turn')
             turns[-1]['items'].append({'kind':'message','ts':event['ts'],'text':event['text'],'phase':event.get('phase'),'_raw_ref':ref})
@@ -246,7 +291,7 @@ def safe(root,relative):
 def write_project(root,legacy,native=None):
     """Persist canonical event/loss streams; no inline session or attachment payloads."""
     root=Path(root);refs=[];all_losses=[]
-    legacy=copy.deepcopy(legacy)
+    legacy={**legacy,'attachments':copy.deepcopy(legacy['attachments'])}
     for b in legacy['conversations']:
         for turn in b['turns']:
             for attachment in turn['user'].get('attachments',[]):
@@ -256,18 +301,23 @@ def write_project(root,legacy,native=None):
     for b in legacy['conversations']:
         canonical=upgrade_v1(b);sid=canonical['session']['id'];base=f'sessions/{sid}'
         for event in canonical['events']:
-            if event['kind']=='user_message':
+            if event['kind'] in INPUT_KINDS:
                 event['attachments']=[{'ref':a['sha256'],**{k:a[k] for k in ('name','original','mode','image','mime') if k in a}} for a in event.get('attachments',[])]
         # Keeping attachment bytes is distinct from reproducing its native UI block.
         # Do not clear every loss on a line merely because one attachment recovered.
         canonical['losses_summary']=loss_summary(canonical['losses'])
-        event_data=''.join(json.dumps(e,ensure_ascii=False,separators=(',',':'))+'\n' for e in canonical['events']).encode('utf-8')
-        loss_data=json.dumps(canonical['losses'],ensure_ascii=False,indent=2).encode('utf-8')
-        for name,data in [('events.jsonl',event_data),('losses.json',loss_data)]:
-            path=safe(root,base+'/'+name);path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(data)
+        events_path=safe(root,base+'/events.jsonl')
+        losses_path=safe(root,base+'/losses.json')
+        events_path.parent.mkdir(parents=True,exist_ok=True)
+        with events_path.open('w',encoding='utf-8',newline='\n') as stream:
+            for event in canonical['events']:
+                json.dump(event,stream,ensure_ascii=False,separators=(',',':'))
+                stream.write('\n')
+        with losses_path.open('w',encoding='utf-8',newline='\n') as stream:
+            json.dump(canonical['losses'],stream,ensure_ascii=False,indent=2)
         meta={k:v for k,v in canonical.items() if k not in ('events','losses','schema','type')}
-        refs.append({'id':sid,'metadata':meta,'events':{'path':base+'/events.jsonl','sha256':digest(event_data)},
-            'losses':{'path':base+'/losses.json','sha256':digest(loss_data)},'branches':[{'id':x['id'],'events_ref':base+'/events.jsonl'} for x in canonical['session']['branches']],
+        refs.append({'id':sid,'metadata':meta,'events':{'path':base+'/events.jsonl','sha256':file_digest(events_path)},
+            'losses':{'path':base+'/losses.json','sha256':file_digest(losses_path)},'branches':[{'id':x['id'],'events_ref':base+'/events.jsonl'} for x in canonical['session']['branches']],
             **({'native':native[sid]} if native and sid in native else {})})
         all_losses.extend(canonical['losses'])
     for n,skip in enumerate(legacy.get('skipped',[])):
@@ -276,7 +326,11 @@ def write_project(root,legacy,native=None):
         'created_at':legacy['created_at'],'project':{'name':Path(legacy['source_project']).name,'root_hint':legacy['source_project'],'files':legacy['files']},
         'attachments':legacy['attachments'],'sessions':refs,'losses_summary':loss_summary(all_losses),
         'project_losses':all_losses[-len(legacy.get('skipped',[])):] if legacy.get('skipped') else [],'skipped':legacy.get('skipped',[]),'exclusions':legacy.get('exclusions',[])}
-    (root/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8');return manifest
+    if legacy.get('surroundings'):manifest['surroundings']=legacy['surroundings']
+    if 'file_references' in legacy:manifest['file_references']=legacy['file_references']
+    with (root/'manifest.json').open('w',encoding='utf-8',newline='\n') as stream:
+        json.dump(manifest,stream,ensure_ascii=False,indent=2)
+    return manifest
 
 
 def read_project(root):
@@ -290,16 +344,17 @@ def read_project(root):
         if entry['id'] in ids:raise ValueError('Duplicate project session reference')
         ids.add(entry['id']);parts={}
         for name in ('events','losses'):
-            data=safe(root,entry[name]['path']).read_bytes()
-            if digest(data)!=entry[name]['sha256']:raise ValueError('Exchange stream hash mismatch')
-            parts[name]=[json.loads(x) for x in data.decode('utf-8').split('\n') if x.strip()] if name=='events' else json.loads(data)
+            path=safe(root,entry[name]['path'])
+            if file_digest(path)!=entry[name]['sha256']:raise ValueError('Exchange stream hash mismatch')
+            with path.open(encoding='utf-8',newline='\n') as stream:
+                parts[name]=[json.loads(line) for line in stream if line.strip()] if name=='events' else json.load(stream)
         b={'schema':SCHEMA,'type':'session',**copy.deepcopy(entry['metadata']),**parts}
         if b['session']['id']!=entry['id'] or b['source']['session_id']!=entry['id']:raise ValueError('Session reference identity mismatch')
         if b['source']['agent']!=m['source']['agent']:raise ValueError('Project source agent mismatch')
         expected=[{'id':x['id'],'events_ref':entry['events']['path']} for x in b['session']['branches']]
         if entry['branches']!=expected:raise ValueError('Branch reference mismatch')
         for event in b['events']:
-            if event['kind']=='user_message':
+            if event['kind'] in INPUT_KINDS:
                 try:event['attachments']=[{**copy.deepcopy(assets[x['ref']]),**{k:x[k] for k in ('name','original','mode','image','mime') if k in x}} for x in event.get('attachments',[])]
                 except KeyError:raise ValueError('Unresolved attachment reference')
         validate(b);bundles.append(to_v1(b));losses.extend(b['losses'])
@@ -308,4 +363,5 @@ def read_project(root):
     if loss_summary(losses)!=m['losses_summary']:raise ValueError('Project loss summary mismatch')
     return {'schema':'agent-project/v1','source_agent':m['source']['agent'],'source_project':m['project']['root_hint'],
         'files':m['project']['files'],'attachments':m['attachments'],'conversations':bundles,'skipped':m.get('skipped',[]),
-        'losses_summary':m['losses_summary'],'native_sessions':native}
+        'losses_summary':m['losses_summary'],'native_sessions':native,'surroundings':m.get('surroundings',{}),
+        **({'file_references':m['file_references']} if 'file_references' in m else {})}

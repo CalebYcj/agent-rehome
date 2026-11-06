@@ -35,6 +35,8 @@ def child(test):
 
 
 def main():
+    from cli_output import print,configure
+    configure()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--_child', type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()

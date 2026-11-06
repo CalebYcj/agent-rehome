@@ -4,6 +4,8 @@ from pathlib import Path
 
 
 def main():
+    from cli_output import print,configure
+    configure()
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('output',type=Path)
     parser.add_argument('--long',action='store_true',help='Include large historical tool results for context-budget checks')
     args=parser.parse_args()

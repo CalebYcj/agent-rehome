@@ -10,8 +10,8 @@ description: 迁移 Claude Code/Codex 会话或整项目、换机及重绑定路
 ## 先判断路线
 
 1. 确认用户指定的来源/目标 Agent、单会话或整项目、同机或跨机；不能拿最近会话代替指定来源。
-2. 同机优先共享本地路径；跨机携带固定源码和数据包。--source-home/--target-home 是数据根，不是项目目录。
-3. Claude 同类走原样平移；Codex 同类交给 ReHome；跨 Agent 走有损转换。平台有限结论见 [验收记录](docs/VALIDATION.md)。
+2. 来源端只打包或列清单；接收端Agent自己恢复、写入、登记、归组、验收。同机共享路径，跨机带固定源码/包；--source-home/--target-home是数据根。
+3. Claude 同类走原样平移；Codex 同类按 ReHome 原则原生平移；跨 Agent 走有损转换。平台有限结论见 [验收记录](docs/VALIDATION.md)。
 
 ### Claude → Claude
 
@@ -23,11 +23,12 @@ python scripts/project_rehome.py restore "<native-project-package>" --to claude 
 ```
 跨机单会话使用 agent_rehome.py export --native 加 import，完整命令见 README。
 原生历史不加摘要；只按 manifest 来源根及别名重定位顶层 cwd，保留子目录，正文/工具/thinking 字节不改。
+Claude同ID默认拒绝；--new-copy另存归属ID与旁车，--fast-forward只把无分叉新增行追加回原会话原cwd，二者互斥；先看dry-run追加行数，细则见README。
 
 ### Codex → Codex
 
-使用 ReHome Desktop 的盘点、预览和恢复，或 codex-rehome-skill 自身入口；不在本 Skill 内重写。
---convert 仅限用户明确选择的同类转换诊断，不能当作无损平移。此路线的操作命令以 ReHome 自身说明为准。
+本 Skill 原生 transfer 或 export --native / import；整项目 pack --from codex --native / restore --to codex，命令见 README。
+Codex可在App运行时自己恢复：有界数据库事务、索引追加校验、rollout独占新建；目标先初始化数据库，同ID拒绝。--new-copy另存；分页lineage拒绝、外部文件不收集，--convert仅诊断。
 
 ### Claude ↔ Codex
 
@@ -36,15 +37,15 @@ python scripts/project_rehome.py restore "<native-project-package>" --to claude 
 python scripts/agent_rehome.py transfer --from "claude:<id-or-jsonl>" --to codex --cwd "<existing-target-project>" --dry-run
 python scripts/project_rehome.py restore "<exchange-project-package>" --to claude --cwd "<new-target-project>" --dry-run
 ```
-先预览、检查 manifest/skipped/损失与目录，再在已有授权范围内去掉 --dry-run 执行；pack 包须全新且在来源工程外。
+先预览体积和磁盘需求。超大项目优先用 pack --files reference，接收端指向已搬好的目录；--strict-files 要求文件清单完全匹配。默认排除 Git。周边配置及差异见 restore.json。
 转换可生成预算摘要；完整归档不等于模型加载全部历史。losses_summary、.rehome/losses/ 和 .rehome/exchange/ 保留降级证据。
 
 ## 安全与判断边界
 
 - 不复制账号凭据、登录状态、信任或权限白名单；目标权限用 default，不把历史授权变成当前授权，不执行历史任务。
 - 跨 Agent 不恢复不可见推理或加密模型状态；Claude 原生 thinking 只作为来源历史保留，不激活来源权限。
-- 数据包含私人对话/源码，不能公开；真实聊天、原始证据和备份留私有目录，公开报告先脱敏；排除规则和秘密扫描并非穷尽，二进制旁车不扫描内容，必须报告数量与字节数。
-- 写前备份；不覆盖未知同 ID、已变化/续聊的历史、已有恢复目录或同名 memory；保留来源不移动/删除，来源历史更新后，转换路线用 --new-copy 另存快照，原生同 ID 仍拒绝；不绕过拒绝。
+- 数据包含私人对话/源码，不能公开；配置密钥命中拒绝，--allow-secrets-in-config须明确确认且不等于脱敏；真实证据留私有目录。扫描非穷尽，二进制旁车不扫描内容，报告数量与字节数。
+- 写前备份；不覆盖未知同ID、分叉历史、已有恢复目录或同名memory；来源不移动/删除，另存用--new-copy；Claude仅显式--fast-forward可追加经验证无分叉的历史，不重写共享旧行。
 - 检查包的路径、哈希和损失清单，未知事件无对应损失条目时拒绝；凭据文件名和旁车/包内符号链接仍拒绝，会话 JSONL 须合法 UTF-8，原生项目根声明的别名与此不同；项目外 cwd 原样保留，只报数量。
 - 跨 Agent 模型/版本从显式参数或目标配置/历史取得，不猜；Claude 原生版本沿用来源，自定义目标根需显式桌面登记目录。
 - 重启和目录信任由用户完成，Agent 不代点或自动关闭/重启；CLI 与桌面认证可能不同，不能复制凭据解决登录。
@@ -52,6 +53,16 @@ python scripts/project_rehome.py restore "<exchange-project-package>" --to claud
 - 未见过的格式、报错或拒绝时，停止依赖该操作的写入，报告原因、失败阶段和最小必要信息；保留证据，不自行改数据绕过去。
 - 回退前停止目标写入并保留新增内容；按备份清单恢复，SQLite 用在线备份，不盲目用旧共享数据库/索引覆盖其他聊天。
 - 部分失败保留 restore.json 和备份，不自动删目录或宣称整批回滚；不改运行中全局状态、循环改库/重导入或改历史来冒充成功。
+
+Claude 快进预演与写入均检测目标会话进程。只有 `live_process_check=clear` 时才继续。发现进程，由用户在应用内停止该会话或退出并重开应用，随后重新预演。快进后打开原会话，核对第一条新提问的 parentUuid 是否指向追加历史的最后一条有 UUID 的记录。clear 表示在命令行和会话进程记录中均未发现运行进程，检测范围有限。如果这条会话仍在其他地方打开，例如终端，请先关闭它，再重新预演。快进成功后可打开原会话续聊。
+
+## 桌面加载与续聊
+
+恢复结果有 `user_next_steps` 时，醒目展示操作方式、目标目录、会话标题和可复制的首句。项目内可查看 `.rehome/NEXT_STEPS.md`。Claude 需要重启时由用户操作。Codex 由接收端使用官方入口打开目录，精确匹配项目根，按 ID 原生加载、归组，并用原生工具复查归属与 cwd。项目暂为空时，接收端继续完成归组。
+
+如需目录信任，让用户打开指定的恢复会话，粘贴首句并发送，出现提示时核对路径并亲手确认。使用实际恢复会话完成信任，随后可经授权向同一文件夹的其余会话发送验证消息。Agent 不使用电脑操作重启、结束进程、点击或截图验收。
+
+需要重启或点选时优先用平台的结束选项或提问按钮，提供「已重启，继续」或「已打开，继续」及「稍后再说」。确认后通过原生工具核对会话可见性与归属，再取得续聊授权。没有按钮时提供醒目文字与可复制首句。
 
 ## 验收与能力不足
 

@@ -43,6 +43,8 @@ def inspect(home=None, system=None, codex_home=None, claude_home=None, desktop_r
 
 
 def main():
+    from cli_output import print,configure
+    configure()
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--codex-home',type=Path);parser.add_argument('--claude-home',type=Path)
     parser.add_argument('--desktop-registry',type=Path)

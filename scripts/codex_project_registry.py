@@ -116,6 +116,8 @@ def apply_pending(job,timeout=1800):
     raise TimeoutError('Desktop did not exit within the one-shot 30-minute window; no configuration applied')
 
 if __name__=='__main__':
+    from cli_output import print,configure
+    configure()
     if len(sys.argv)>1 and sys.argv[1]=='apply-pending':
         print(json.dumps(apply_pending(sys.argv[2]),ensure_ascii=False));raise SystemExit(0)
     ap=argparse.ArgumentParser();ap.add_argument('restore_manifest',type=Path);a=ap.parse_args()
