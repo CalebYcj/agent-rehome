@@ -1,8 +1,36 @@
 # Agent Rehome
 
-Claude Code ↔ Codex 原生聊天与项目迁移 Skill。保留可见历史，让目标端能加载并接着聊；支持多个会话、项目文件、历史附件和换电脑后的项目路径重绑定。
-
 版本 **0.4.0** · [English](README.en.md) · [MIT](LICENSE)
+
+把 Codex、Claude Code 的对话和项目，搬到另一个 Agent 接着做。
+
+在 Codex 里做了几个月的项目，想换 Claude 接着做？不用从头再讲一遍。两边装上这个 Skill，在原来的 Agent 里说一句“打包”，在新的 Agent 里说一句“接收”，聊天记录、图片和项目文件就一起搬过去，新的 Agent 直接接着聊。
+
+- Codex → Claude、Claude → Codex 都能搬，同类之间也能搬
+- Windows、macOS 都能用，换电脑也能搬
+- 单条对话、整个项目都可以
+- 原来的对话不动，随时能回去
+- 免费开源（MIT）
+
+## 快速上手
+
+1. **装 Skill**：下载最新 [Release](https://github.com/CalebYcj/agent-rehome/releases/latest) 并解压，把里面的 `agent-rehome` 文件夹放到：
+   - Claude Code：`~/.claude/skills/agent-rehome/`
+   - Codex：`~/.agents/skills/agent-rehome/`
+
+   搬出和搬入的两边都要装。也可以把本仓库链接发给你的 Agent，请它按这里的说明安装。
+2. **准备 Python 3.10+**：没有的话，Agent 会告诉你去哪下载。
+3. **打包**：在原来的 Agent 里说：`用 Agent Rehome 打包这个项目`。
+4. **接收**：同一台电脑直接进行；换电脑时先把整个包复制过去。然后在新的 Agent 里说：`用 Agent Rehome 接收这个搬家包：<包的位置>`。
+5. **接着聊**：按 Agent 的提示完成剩下的一两步，打开迁移过来的对话就能继续。
+
+> 搬家包里有你的私人对话和项目文件，不要上传到公开的地方。迁移会写入应用数据，建议先备份。
+
+下面是命令行用法和技术细节。
+
+---
+
+Claude Code ↔ Codex 原生聊天与项目迁移 Skill。保留可见历史，让目标端能加载并接着聊；支持多个会话、项目文件、历史附件和换电脑后的项目路径重绑定。
 
 它会直接写入应用数据目录，应用升级可能改变格式。先备份，在副本中预览；不要把包含私人历史的迁移包上传到公开仓库。
 
@@ -113,7 +141,7 @@ Windows 和 macOS 都需要 Python 3.10+，来源端和接收端都要。Agent �
 
 Windows 的 `~` 是当前用户主目录。也可以直接在下载的目录运行脚本，无需安装 Skill。向 Agent 提出“使用 agent-rehome，将指定 Claude/Codex 会话迁移到另一端”，并给出来源 ID/文件与目标项目路径。
 
-测试源码仓库（暂无正式 Release）：
+也可以直接克隆源码：
 
 ```text
 git clone https://github.com/CalebYcj/agent-rehome.git

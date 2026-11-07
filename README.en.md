@@ -2,6 +2,34 @@
 
 Version **0.4.0** · [中文](README.md) · [MIT](LICENSE)
 
+Move your Codex and Claude Code conversations and projects to another agent, and keep going.
+
+Spent months on a project in Codex and want to continue in Claude? No need to explain it all again. Install this Skill on both sides, say "pack" in the old agent and "receive" in the new one. Chat history, images and project files move together, and the new agent picks up where you left off.
+
+- Codex → Claude, Claude → Codex, and same-agent moves
+- Windows and macOS, including moving to another computer
+- A single conversation or a whole project
+- Your original conversation stays where it is
+- Free and open source (MIT)
+
+## Quick start
+
+1. **Install the Skill**: download the latest [Release](https://github.com/CalebYcj/agent-rehome/releases/latest), unzip it, and put the `agent-rehome` folder in:
+   - Claude Code: `~/.claude/skills/agent-rehome/`
+   - Codex: `~/.agents/skills/agent-rehome/`
+
+   Install it on both the source and the destination side. You can also send this repository link to your agent and ask it to install the Skill by these instructions.
+2. **Have Python 3.10+**: if it is missing, the agent tells you where to get it.
+3. **Pack**: in the old agent, say: `Use Agent Rehome to pack this project`.
+4. **Receive**: on the same computer, go ahead; for another computer, copy the whole package over first. Then in the new agent, say: `Use Agent Rehome to receive this package: <package location>`.
+5. **Keep going**: follow the agent's prompts for the last step or two, then open the moved conversation and continue.
+
+> Packages contain your private conversations and project files. Don't upload them anywhere public. Moving writes application data, so keep a backup.
+
+Command-line usage and technical details follow.
+
+---
+
 ### Large projects and reference inventories
 
 Full copies are limited by destination capacity. Pack and restore estimate writes for files, attachments, histories and backups by filesystem and reserve 64 MiB per filesystem. Errors report the shortfall. Estimates use logical bytes and may include the full size of sparse files. The legacy `--allow-large` flag remains accepted.
@@ -27,7 +55,7 @@ Migrate visible Claude Code ↔ Codex conversation history into native target se
 
 It writes application data directly. Application updates may break compatibility. Keep backups; never publish packages containing private conversations or source files.
 
-Preview: bounded Windows and macOS samples cover native Claude relocation and both cross-agent whole-project directions; they do not certify all versions or projects. See [MAC_TEST.md](MAC_TEST.md) and start with `python3 -B scripts/doctor.py`.
+Bounded Windows and macOS samples cover native relocation and both cross-agent whole-project directions; see [docs/VALIDATION.md](docs/VALIDATION.md). If something looks off, start with `python3 -B scripts/doctor.py`.
 
 ## Routes and evidence
 
