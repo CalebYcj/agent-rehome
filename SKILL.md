@@ -5,13 +5,20 @@ description: 迁移 Claude Code/Codex 会话或整项目、换机及重绑定路
 
 # Agent Rehome
 
-第三方迁移 Skill，Python 3.10+（压缩 Codex 来源需要可选 zstd，见 README）；先读 [README](README.md) 的安装与用法，格式边界见 [SPEC](SPEC.md)。
+迁移 Skill，Python 3.10+（压缩 Codex 来源需要可选 zstd，见 README）；先读 [README](README.md) 的安装与用法，格式边界见 [SPEC](SPEC.md)。
+
+## 开始前：检查 Python
+
+来源端和接收端都要 Python 3.10+。先运行 `python --version`，不行再试 `python3 --version`；Windows 还可试 `py -3 --version`。
+没有或版本过低时，停下来告诉用户：本 Skill 需要 Python 3.10 或以上，可从 https://www.python.org/downloads/ 下载，装好后再继续。用户同意后才可代为安装。Windows 上 `python` 可能只会打开应用商店，以能输出版本号为准。
+读取压缩的 Codex 记录时如果报缺少解压器，告诉用户原因，用户同意后运行 `python -m pip install zstandard`，或换用 Python 3.14+。
 
 ## 先判断路线
 
 1. 确认用户指定的来源/目标 Agent、单会话或整项目、同机或跨机；不能拿最近会话代替指定来源。
 2. 来源端只打包或列清单；接收端Agent自己恢复、写入、登记、归组、验收。同机共享路径，跨机带固定源码/包；--source-home/--target-home是数据根。
-3. Claude 同类走原样平移；Codex 同类按 ReHome 原则原生平移；跨 Agent 走有损转换。平台有限结论见 [验收记录](docs/VALIDATION.md)。
+3. 打包完成后，醒目告诉用户包在哪、下一步做什么，再给一句可复制的话；打包结果的 `user_next_steps` 已写好这些内容，单会话和整项目都有。本 Skill 不联网传包：跨机时用户把整个包复制过去（U 盘、移动硬盘或局域网共享），不要传到公开位置。另一台电脑也要先装好本 Skill 和 Python。
+4. Claude 同类走原样平移；Codex 同类按 ReHome 原则原生平移；跨 Agent 走有损转换。平台有限结论见 [验收记录](docs/VALIDATION.md)。
 
 ### Claude → Claude
 

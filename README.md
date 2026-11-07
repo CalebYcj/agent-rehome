@@ -2,11 +2,11 @@
 
 Claude Code ↔ Codex 原生聊天与项目迁移 Skill。保留可见历史，让目标端能加载并接着聊；支持多个会话、项目文件、历史附件和换电脑后的项目路径重绑定。
 
-版本 **0.4.0-preview.9** · [English](README.en.md) · [MIT](LICENSE)
+版本 **0.4.0** · [English](README.en.md) · [MIT](LICENSE)
 
-第三方工具，非 Anthropic 或 OpenAI 官方。它会直接写入应用数据目录，应用升级可能改变格式。先备份，在副本中预览；不要把包含私人历史的迁移包上传到公开仓库。
+它会直接写入应用数据目录，应用升级可能改变格式。先备份，在副本中预览；不要把包含私人历史的迁移包上传到公开仓库。
 
-预览版：Windows 与 macOS 已有原样平移和双向跨 Agent 整项目的有限验收样本；这不是所有版本或项目的兼容保证。Mac 端 Agent 请按 [MAC_TEST.md](MAC_TEST.md) 执行，先运行 `python3 -B scripts/doctor.py` 只读检查。
+Windows 与 macOS 上，同类搬运和双向跨 Agent 整项目都有实测，已测范围见[验收记录](docs/VALIDATION.md)。环境有疑问时，先运行 `python3 -B scripts/doctor.py` 只读检查。
 
 ## 路线与验收状态
 
@@ -94,7 +94,11 @@ python scripts/project_rehome.py restore "<package>" --to codex --cwd "<already-
 
 zstd 只在压缩来源出现时需要：依次使用 Python 3.14+ 的 compression.zstd、已安装的 zstandard（`python -m pip install zstandard`）、系统 zstd（仅 `-d -c`）。缺少三者明确报错，不静默漏掉压缩会话。来源不改，解压在内存中完成；失败不自动安装依赖。真实历史可能很大，应预留解压内存。此可选依赖不影响未压缩来源与目标写入。
 
-### macOS 的 Python 准备
+### Python 准备
+
+Windows 和 macOS 都需要 Python 3.10+，来源端和接收端都要。Agent 会先检查，缺少时提示你从 [Python 官网](https://www.python.org/downloads/)下载。
+
+#### macOS
 
 需要可实际运行的 Python 3.10 或以上。macOS 默认可能没有可用 Python；出现 python3 命令也不代表环境已准备好，某些机器的系统命令只会提示安装开发者工具。先运行 `python3 --version`，确认版本至少 3.10。
 
@@ -116,7 +120,7 @@ git clone https://github.com/CalebYcj/agent-rehome.git
 cd agent-rehome
 ```
 
-当前为 macOS 测试预览版，请按 MAC_TEST.md 验收后使用，不代表 macOS 已适配通过。
+macOS 与 Windows 用同一份 Skill。已测范围见[验收记录](docs/VALIDATION.md)。
 
 ## 单会话
 
@@ -183,7 +187,7 @@ Codex 项目要跨 Agent 转换，请用不带 `--native` 的 `pack` 生成交�
 - `.mcp.json` 在同Agent及跨Agent恢复时均原样归档到 `.rehome/surroundings/originals/.mcp.json`，项目根不留生效副本，避免目标应用信任目录后自动连接。报告服务器及启动命令，不列环境变量值；如需启用，用户明确审查/批准后手动复制回项目根，恢复不代启用。Claude settings 的 hooks、来源权限和已知自动启动字段从生效副本移除；含可执行或权限字段的 Codex 配置整体隔离。跨Agent commands/子Agent只提示，不转换；hooks脚本不自动启用，应用加载另验收。
 - `.mcp.json`、Claude settings 和 Codex 项目配置在打包前用现有密钥特征扫描；命中拒绝且不创建包。明确使用 `--allow-secrets-in-config` 可允许该配置进入私有包，覆盖清单会记录路径；原字节仍可能含密钥，不能公开。这不是完整秘密检测，也不会安装用户级工具或插件。
 
-- 验收只限 [已记录的平台、版本和样本](docs/VALIDATION.md)，不保证所有历史、扩展、分支或逐像素一致。第三方工具直接写应用数据，应用更新后格式可能失效。
+- 验收只限 [已记录的平台、版本和样本](docs/VALIDATION.md)，不保证所有历史、扩展、分支或逐像素一致。本工具直接写应用数据，应用更新后格式可能失效。
 - `.jsonl.zst` 需要可选解压器：Python 3.14+ 的 compression.zstd、zstandard 或系统 zstd；缺少时明确报错，不静默跳过压缩会话。解压在内存中完成。
 - 数据库盘点只读取所选 Codex 数据根内的会话，不跟随根外路径读取手动移走的冷存档；整项目不会把这类根外记录算作成功。显式提供根外单会话文件路径属于另一个明确来源选择。
 - 无可识别可见消息的来源：单会话导出拒绝，跨 Agent 项目 pack 写入 skipped；检查每项原因，不能将其视为空聊天或整批成功。

@@ -2,6 +2,14 @@
 
 Historical entries describe their original checkpoints; current bounded evidence is in docs/VALIDATION.md.
 
+## 0.4.0
+
+- First stable release.
+- Check for Python 3.10+ before starting and tell the user how to get it.
+- After a project pack or single-session export, report where the package is, how to carry it to another computer, and a sentence to send to the receiving Agent.
+- Report image attachments as carried instead of dropped; images whose source file is gone stay in `skipped`.
+- Replace outdated "macOS acceptance pending" wording.
+
 ## 0.4.0-preview.9
 
 - Documentation only: record the preview.8 Claude new-copy smoke on Windows and macOS, state that process detection can also miss sessions, and clean up validation wording.

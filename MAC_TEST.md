@@ -1,12 +1,12 @@
-# macOS preview acceptance handoff
+# macOS acceptance checklist
 
-Version: **0.4.0-preview.2**. This preview has bounded native Claude and cross-agent whole-project Mac samples, not general macOS acceptance. Current results and remaining limits are in [docs/VALIDATION.md](docs/VALIDATION.md). Use this independent Skill source; do not run historical tasks or repeat completed tests solely because documentation changed.
+This checklist is for re-running Mac acceptance. Mac samples for native Claude, native Codex and cross-agent projects have passed; they are bounded samples, not every version or project. Current results and remaining limits are in [docs/VALIDATION.md](docs/VALIDATION.md). Use this independent Skill source; do not run historical tasks or repeat completed tests solely because documentation changed.
 
-## Architecture preview boundary
+## Architecture boundary
 
 Run `python3 -B scripts/run_tests.py` with the default temporary-directory settings first. Native Codex byte-reversal fixtures resolve their scratch root consistently with the restoration planner, including macOS `/var` versus `/private/var` aliases. A different TMPDIR passing does not replace a default-environment regression; record both when diagnosing an alias failure. The MAC-R1 correction is to the test fixture, not a claim of a production relocation repair or native Mac acceptance.
 
-Codex same-agent migration now uses this Skill's native relocation following ReHome principles; Mac acceptance is pending. Explicit --convert remains diagnostic only. Native Claude relocation preserves historical bytes except declared top-level cwd rebinding. MAC-C1/C2/C3 and MAC-X1/X2 cover different samples: read their scope before claiming success. Single-account registry discovery was spot-checked; multiple accounts remain unverified. The current candidate still needs its own Mac regression before broadening those older live results. Read [SPEC.md](SPEC.md) and the route guidance in SKILL.md first.
+Codex same-agent migration now uses this Skill's native relocation following ReHome principles; bounded Mac samples have passed. Explicit --convert remains diagnostic only. Native Claude relocation preserves historical bytes except declared top-level cwd rebinding. MAC-C1/C2/C3 and MAC-X1/X2 cover different samples: read their scope before claiming success. Single-account registry discovery was spot-checked; multiple accounts remain unverified. The current candidate still needs its own Mac regression before broadening those older live results. Read [SPEC.md](SPEC.md) and the route guidance in SKILL.md first.
 
 ## What changed
 

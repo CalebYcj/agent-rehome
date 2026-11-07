@@ -8,7 +8,7 @@ from project_io import CHUNK, chunks, measure, write_checked, check_space, json_
 from collections import Counter
 from urllib.parse import urlsplit
 from cli_output import print,configure
-from user_next_steps import NEXT_STEPS,add_next_steps
+from user_next_steps import NEXT_STEPS,add_next_steps,package_next_steps
 SKIP_DIRS={'.git','node_modules','.venv','venv','__pycache__','.next','target','dist','AppData','.codex','.claude','.ssh','.cache','__MACOSX','.AppleDouble'}
 SKIP_FILES={'.env','.npmrc','.pypirc','credentials.json','.credentials.json','auth.json','token.json','tokens.json','settings.local.json','.DS_Store'}
 LOCAL_ARTIFACT_SUFFIXES={'.exe','.dll','.pdb','.dmg','.zip','.gz','.zst','.rehome','.sqlite','.sqlite3','.db','.wal','.shm','.bin'}
@@ -325,7 +325,7 @@ def pack(agent,project,out,home,selected_sessions=None,native=False,include_memo
         native_refs[snap['source']['session_id']]={'path':relative,'manifest_sha256':r.digest(directory/'manifest.json')}
     if format_version==1:r.dump(out/'manifest.json',manifest)
     else:exchange.write_project(out,manifest,native_refs)
-    print(json.dumps({'package':str(out),'files':len(entries),'bytes':sum(x['bytes'] for x in entries),'conversations':len(bundles),'attachments':len(assets),'empty_titles':empty_titles,'skipped':skipped},ensure_ascii=False))
+    print(json.dumps({'package':str(out),'files':len(entries),'bytes':sum(x['bytes'] for x in entries),'conversations':len(bundles),'attachments':len(assets),'empty_titles':empty_titles,'skipped':skipped,'user_next_steps':package_next_steps(out)},ensure_ascii=False))
 
 def load_manifest(package):return exchange.read_project(package)
 

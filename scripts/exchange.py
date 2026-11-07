@@ -115,7 +115,7 @@ def audit_source(agent,rows,refs):
                 elif typ=='tool_use' and block.get('id') not in tool_results:
                     add(n,'missing_tool_result','missing_file','textified',block=j)
                 elif typ in ('image','attachment','document','file'):
-                    add(n,'image_attachment' if typ=='image' else 'file_attachment','unsupported_by_target','dropped',block=j)
+                    add(n,'image_attachment' if typ=='image' else 'file_attachment','unsupported_by_target','kept_raw_only' if typ=='image' else 'dropped',block=j)
                 elif typ not in ('text','tool_use','tool_result'):
                     add(n,'content_'+typ,'unsupported_by_target','dropped',block=j)
         else:
@@ -146,7 +146,7 @@ def audit_source(agent,rows,refs):
                     if codex_user_text(original)!=original:
                         add(n,'user_message_normalization','harness_injected','textified')
                     for j,block in enumerate(item.get('content',[])):
-                        if block.get('type')=='local_image':add(n,'image_attachment','unsupported_by_target','dropped',block=j)
+                        if block.get('type')=='local_image':add(n,'image_attachment','unsupported_by_target','kept_raw_only',block=j)
                         elif block.get('type') not in ('text','Text'):add(n,'user_content_'+block.get('type','unknown'),'unsupported_by_target','dropped',block=j)
                 elif n not in receipt_copies and kind not in ('AgentMessage','CommandExecution','McpToolCall'):
                     add(n,str(kind),'unsupported_by_target','textified')
@@ -155,7 +155,7 @@ def audit_source(agent,rows,refs):
                 if kind in ('agent_reasoning','agent_reasoning_raw_content','agent_reasoning_delta'):
                     add(n,kind,'unsupported_by_target','dropped',event_kind='reasoning')
                 elif kind=='user_message' and (payload.get('images') or payload.get('local_images')):
-                    add(n,'image_attachment','unsupported_by_target','dropped')
+                    add(n,'image_attachment','unsupported_by_target','kept_raw_only')
                 elif kind not in ('user_message','agent_message','task_started','task_complete','turn_aborted','token_count','patch_apply_begin','patch_apply_end','web_search_begin','web_search_end','exec_command_begin','exec_command_end','exec_command_output_delta','agent_message_delta','agent_reasoning_delta','agent_reasoning_section_break'):
                     add(n,'event_'+str(kind),'unsupported_by_target','kept_raw_only')
             elif typ!='session_meta':add(n,'record_'+str(typ),'unsupported_by_target','kept_raw_only')

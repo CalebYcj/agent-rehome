@@ -80,7 +80,7 @@ raw_ref 为 null，或 `{file,line,sha256,block?}`：file 为来源文件名，l
 
 - reason：unsupported_by_target / encrypted / harness_injected / sensitive / missing_file。
 - action：dropped / textified / summarized / kept_raw_only。
-- action 表示目标投影的处理，不等于从包中物理删除。ext 中可以留只读信息；`kept_raw_only` 不代表一定携带完整 raw，需核对 native 引用；来源文件没有带上时只有定位和白名单说明。
+- action 表示目标投影的处理，不等于从包中物理删除。image_attachment 记为 kept_raw_only：图片作为附件携带，来源文件已不存在的图片另列入 project_losses 和 skipped。ext 中可以留只读信息；`kept_raw_only` 不代表一定携带完整 raw，需核对 native 引用；来源文件没有带上时只有定位和白名单说明。
 - 恢复的附件可将对应损失标为 resolved_by；仍保留审计条目，但不计入未解决汇总。仅当具体附件确已关联时才能标记。
 - `count` 是该条目覆盖的源轮数等辅助事实；汇总统计损失条目数，不把轮数与事件数混加。
 

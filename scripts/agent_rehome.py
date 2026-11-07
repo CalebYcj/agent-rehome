@@ -9,7 +9,7 @@ import codex_backend as backend
 from cli_output import print,configure
 import codex_native
 import exchange
-from user_next_steps import add_next_steps
+from user_next_steps import add_next_steps,package_next_steps
 from project_io import digest,inline_image
 from claude_context import DEFAULT_BUDGET, POLICY_VERSION, estimate_records, plan_context, source_compaction_hint
 NS = uuid.UUID('6f1c2a9e-4b7d-4c1e-9a3f-c1a0dec0de01')
@@ -600,11 +600,11 @@ def main():
             import claude_native,codex_relocate
             module=claude_native if agent=='claude' else codex_relocate
             snap=module.snapshot(locate(agent,session,home),home,a.include_memory,a.include_checkpoints,a.source_desktop_registry)
-            if a.command=='export':module.pack(snap,a.out);print(a.out)
+            if a.command=='export':module.pack(snap,a.out);print(a.out);print(json.dumps({'user_next_steps':package_next_steps(a.out)},ensure_ascii=False))
             else:module.restore(snap,a)
             return
         b=export(agent,session,a.source_home or Path.home()/('.claude' if agent=='claude' else '.codex'),full_tools=True)
-    if a.command=='export': validate(b); dump(a.out,b); print(a.out)
+    if a.command=='export': validate(b); dump(a.out,b); print(a.out); print(json.dumps({'user_next_steps':package_next_steps(a.out)},ensure_ascii=False))
     else:
         if a.fast_forward:raise ValueError('--fast-forward requires a native Claude directory package or transfer')
         import_bundle(b,a)

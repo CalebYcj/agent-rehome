@@ -1,6 +1,6 @@
 # Agent Rehome
 
-Version **0.4.0-preview.9** · [中文](README.md) · [MIT](LICENSE)
+Version **0.4.0** · [中文](README.md) · [MIT](LICENSE)
 
 ### Large projects and reference inventories
 
@@ -25,7 +25,7 @@ CLI output is UTF-8 with encoding-safe fallback. Suspect private-use filename ch
 
 Migrate visible Claude Code ↔ Codex conversation history into native target sessions. Project snapshots can include files, multiple conversations, recoverable attachments and destination path rebinding.
 
-This is an unofficial third-party tool, not an Anthropic or OpenAI product. It writes application data directly. Application updates may break compatibility. Keep backups; never publish packages containing private conversations or source files.
+It writes application data directly. Application updates may break compatibility. Keep backups; never publish packages containing private conversations or source files.
 
 Preview: bounded Windows and macOS samples cover native Claude relocation and both cross-agent whole-project directions; they do not certify all versions or projects. See [MAC_TEST.md](MAC_TEST.md) and start with `python3 -B scripts/doctor.py`.
 
@@ -74,7 +74,7 @@ git clone https://github.com/CalebYcj/agent-rehome.git
 cd agent-rehome
 ```
 
-This is a macOS test preview, not a claim of native macOS acceptance. Follow MAC_TEST.md.
+macOS and Windows use the same Skill. See [validation notes](docs/VALIDATION.md) for what has been tested.
 
 
 ### Preparing Python on macOS
@@ -126,7 +126,7 @@ For cross-agent conversion of a Codex project, use `pack` without `--native` to 
 - Bounded same-agent Codex samples retained compaction records and resumed successfully. Decryption of the encrypted content was unverified. Users trigger compaction manually in the app. This tool does not trigger it.
 - Cross-account migration is untested. The Codex Skill catalog did not refresh during the tested continuations, and cross-machine history retains source-machine paths.
 
-- Results apply only to the recorded platforms, application versions and samples in [VALIDATION](docs/VALIDATION.md). This third-party tool writes application data directly; application updates may invalidate formats. Extensions, branches and pixel-identical rendering are not guaranteed.
+- Results apply only to the recorded platforms, application versions and samples in [VALIDATION](docs/VALIDATION.md). This tool writes application data directly; application updates may invalidate formats. Extensions, branches and pixel-identical rendering are not guaranteed.
 - Reading .jsonl.zst needs an optional decoder: Python 3.14+ compression.zstd, zstandard, or the zstd command. Missing decoders raise an error; compressed sessions are not silently skipped. Decompression uses memory.
 - Database inventory reads only inside the selected Codex data root. Externally moved cold archives are refused, not counted as restored. Supplying an external single-session file path is a separate explicit source selection.
 - Sources without recognizable visible messages are refused by single-session export and listed in skipped by cross-agent project packing. Inspect the reasons; these are not proof of empty chats or full-batch success.

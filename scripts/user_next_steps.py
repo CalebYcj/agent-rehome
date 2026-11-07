@@ -9,6 +9,18 @@ FAST_FORWARD_AFTERCARE = '确认目标会话没有运行中的进程后才快进
 FIRST_MESSAGE = '这是迁移过来的同一条对话的继续。请根据上面的历史，用一句话说出我们上次做到哪里，然后等我下一步指示。'
 
 
+def package_next_steps(package):
+    """What the user does with a finished package; the package may hold private chats and source."""
+    return {
+        'title': '⚠ 打包完成，还差接收',
+        'package_path': str(package),
+        'same_computer': '打开目标 Agent，把下面这句话发给它。',
+        'other_computer': '把整个包（文件或文件夹）复制到另一台电脑（U 盘、移动硬盘或局域网共享都可以），再把这句话发给那边的 Agent，路径换成包在那台电脑上的位置。那边也要先装好本 Skill 和 Python 3.10+。',
+        'privacy': '包里有私人对话和项目文件，不要传到公开位置。',
+        'first_message': f'用 Agent Rehome 接收这个搬家包：{package}',
+    }
+
+
 def add_next_steps(result, agent, project, titles):
     if agent == 'claude':
         heading = '⚠ 还差一步：请重启 Claude 桌面版'
