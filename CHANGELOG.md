@@ -2,6 +2,14 @@
 
 Historical entries describe their original checkpoints; current bounded evidence is in docs/VALIDATION.md.
 
+## 0.5.0
+
+- Move everything at once: `batch_rehome.py` lists every project with conversations in Claude or Codex, packs them all, and restores them all under one new folder. A project that fails is reported and the rest continue.
+- Move the global rules ("main persona"): batch packs include `~/.codex/AGENTS.md` or `~/.claude/CLAUDE.md`. Restore only previews it; `global_rules.py install --apply` writes after the user agrees, with a backup and a one-step undo, and never rewrites the text.
+- Claude: trust the restore folder once and every project under it is covered. Codex: each project folder still asks once; the dry run says how many prompts to expect.
+- A slow Codex folder-open is reported as pending instead of failed, and is not resent.
+- Keep only a project's own sessions when two Claude project names share one folder.
+
 ## 0.4.0
 
 - First stable release.

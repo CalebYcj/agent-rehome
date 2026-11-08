@@ -29,7 +29,7 @@ def desktop_running():return desktop_executable() is not None
 
 def live_home(home):return Path(home).resolve()==(Path.home()/'.codex').resolve()
 
-def native_project(home,cwd,thread_ids,timeout=15):
+def native_project(home,cwd,thread_ids,timeout=60):
     """Use the desktop's supported folder-open command line, not UI injection/state rewriting."""
     home=Path(home);state_path=home/'.codex-global-state.json'
     def find():
@@ -58,7 +58,11 @@ def native_project(home,cwd,thread_ids,timeout=15):
         result=find()
         if result:return dict(result,backup=str(backup))
         time.sleep(0.2)
-    raise TimeoutError('Native folder-open did not register a project; do not claim success or retry blindly')
+    # Not a failure: the App often finishes after the user answers its trust prompt (BATCH-2-ROOT, 156.3).
+    return {'registered':False,'pending':True,'project_created':None,'transport':'native-folder-open','backup':str(backup),
+            'thread_binding_required':list(thread_ids),
+            'reason':f'Folder-open was sent but no project appeared within {timeout} seconds; the App may be waiting for the user to confirm trust',
+            'next':'Do not resend. After the user confirms any trust prompt, re-check with native list_projects, then bind threads with move_thread_to_project'}
 
 def register(home,cwd,pid,name,thread_ids):
     home=Path(home);p=home/'.codex-global-state.json'

@@ -1,6 +1,6 @@
 # Agent Rehome
 
-版本 **0.4.0** · [English](README.en.md) · [MIT](LICENSE)
+版本 **0.5.0** · [English](README.en.md) · [MIT](LICENSE)
 
 把 Codex、Claude Code 的对话和项目，搬到另一个 Agent 接着做。
 
@@ -189,6 +189,42 @@ pack 默认按来源历史中的项目路径匹配会话。要指定精确来源
 
 显式清单里的 Codex 历史应为原生来源；脚本拒绝把已迁入的 Codex 副本误当原生来源再次打包。单会话转换可用于其他场景。项目不包含 `.git`、安装依赖和常见凭据文件；打包前仍需审查自定义敏感文件。
 
+## 一次搬全部项目
+
+`batch_rehome.py` 先列出来源 Agent 里所有有对话的项目，再一次全部打包，接收端一次全部恢复。每个项目内部仍走上面的整项目打包和恢复，所以单项目的全部检查都照常生效，包括密钥扫描、空间检查、全新目标目录和备份。某个项目失败只记录原因，其余项目继续。
+
+```text
+python scripts/batch_rehome.py list --from all
+python scripts/batch_rehome.py pack --from codex --to claude --out "<new-batch-directory>" --dry-run
+python scripts/batch_rehome.py pack --from codex --to claude --out "<new-batch-directory>"
+python scripts/batch_rehome.py restore "<batch-directory>" --to claude --root "<new-parent-directory>" --dry-run
+python scripts/batch_rehome.py restore "<batch-directory>" --to claude --root "<new-parent-directory>"
+```
+
+- `list` 只读，按最近使用排序，列出项目路径、对话数，以及项目文件夹还在不在。
+- `pack --to` 写接收端 Agent。同类迁移自动走原样平移，跨 Agent 走转换。默认打包全部项目，`--project` 可重复使用，只挑其中几个。
+- 包目录里每个项目一个子文件夹，名字取项目文件夹名，重名的依次加 `-2`、`-3`。另有 `batch.json` 记录每个项目的结果。
+- `restore` 把每个项目恢复到 `<root>/<名字>`，汇总写在 `<root>/rehome-batch-restore.json`。目标已存在的项目会跳过，不会合并。Claude 端全部恢复完后只需重启一次桌面版。目录信任也只需一次：用根目录新开一个会话并确认信任，下面的项目都沿用（Windows 桌面版已实测）。
+- Codex 端不同：Codex 每添加一个项目文件夹都要单独确认一次信任，不沿用上层文件夹。恢复时会一个接一个弹出，共几个项目就几次。预演结果的 `user_notice` 会提前说明次数。用户只需逐个核对路径并确认，添加项目和归组由 Agent 完成。某个项目超过 60 秒还没登记，会标为 `pending`，Agent 稍后复查，不重复发起添加。
+- 项目文件夹已经删除的对话这次会跳过，并在结果里标出来。这些对话仍可以用单会话命令单独转。
+
+### 全局规则（主人格）
+
+全局规则文件对所有对话都生效。Codex 的是 `~/.codex/AGENTS.md`，如果有非空的 `AGENTS.override.md`，就以它为准。Claude 的是 `~/.claude/CLAUDE.md`。
+
+批量打包时，这个文件默认一起带上，同样会做密钥扫描；不想带就加 `--no-global-rules`。恢复时只给出预览，不会自动写入。
+
+```text
+python scripts/global_rules.py install "<batch-directory>" --to claude          # 预览
+python scripts/global_rules.py install "<batch-directory>" --to claude --apply  # 用户看过并同意后再写
+```
+
+- **到 Claude：** 原文存成 `~/.claude/rehome/global-rules-from-codex.md`，再在 `~/.claude/CLAUDE.md` 末尾加一行 `@rehome/...` 引用。用户自己的内容不会被改。要撤销，删掉这一行即可。
+- **到 Codex：** Codex 不支持引用，所以把原文追加到它实际读取的那个文件末尾，前后加开始、结束标记。要撤销，删掉这一整段即可。合并后如果超过 32 KiB，会提示可能被截断。
+- 原文不改写。预览会列出所有提到旧 Agent 名字、路径或工具名的行，比如"你是 Codex"、`apply_patch`，由用户决定要不要改。Claude 原文里的 `@` 引用文件不会跟着搬，只列出来。
+- 写入前会先备份。重复安装同一份会自动跳过。目标位置已经有内容不同的同名文件或段落时会停下，不覆盖。
+- 单独搬全局规则用 `global_rules.py pack --from codex --out "<new-directory>"`。
+
 ## 迁移后怎么打开
 
 **Claude 桌面版：** Windows 和 macOS 默认尝试登记 Code 会话；Mac 布局为 `~/Library/Application Support/Claude/claude-code-sessions/<org>/<account>/local_*.json`，已核实的环境及样本边界见 [验收记录](docs/VALIDATION.md)；应用按正常流程重启后才会加载新登记，工具不会自行重启。首次使用新目录需由用户确认信任。独立 CLI 的登录状态可能与桌面不同，本工具不复制认证信息。`--no-desktop` 只写历史。自定义目标数据根不自动登记，需要 `--desktop-registry "<verified-registry-directory>"`；未找到目录时 JSON 结果包含 warnings，侧边栏仍待验证。
@@ -224,7 +260,7 @@ Codex 项目要跨 Agent 转换，请用不带 `--native` 的 `pack` 生成交�
 - Claude 目标的文件附件显示为文字路径链接，保留来源“提到文件”的语义，不生成原生附件卡片或伪造 Read 缓存。文件内容需目标模型按路径读取，可能只保留来源文本快照片段。
 - Codex 目标文件显示为原生文件芯片；本机点击曾打开终端，与原生文件点击的一致性未验证，不能保证打开编辑器或预览。图片缩略图、附件点击和项目归组显示的界面证据有限。macOS 已有同类恢复后模型看内嵌图的样本。
 - 长会话跨 Agent 可能依靠预算摘要；早期主题和细节的把握可能偏弱。完整归档在 `.rehome/history/`，不等于模型加载了全部历史，额度估算不是官方分词。
-- 重启 Claude 桌面版和确认目录信任由用户完成，工具不代点或自动重启；上层目录信任能否覆盖子目录、多账号登记目录仍待验收。
+- 重启 Claude 桌面版和确认目录信任由用户完成，工具不代点或自动重启；Windows 桌面版已实测上层目录信任能覆盖子目录，macOS 和多账号登记目录仍待验收。
 - 不迁移凭据或 Git 历史。源文件不移动/删除，未知冲突拒绝覆盖；本工具不会自动回滚失败批次。
 
 ## 备份与回退

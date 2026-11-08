@@ -20,6 +20,12 @@ with tempfile.TemporaryDirectory() as t:
  try:r.register(h,'wrong','pid','测试',[])
  except ValueError:pass
  else:raise AssertionError('conflicting root accepted')
+ # A slow folder-open (user still at the trust prompt) is pending, not an error.
+ import subprocess
+ from unittest.mock import patch
+ with patch.object(r,'desktop_executable',return_value='codex.exe'),patch.object(subprocess,'Popen') as popen:
+  slow=r.native_project(h,'not-yet',['t9'],timeout=0.3)
+ assert popen.called and slow['pending'] and not slow['registered'] and slow['thread_binding_required']==['t9'] and 'Do not resend' in slow['next']
 print('PASS: live registration delegates to native entry without rewriting state; native id recognition; offline preservation, backup, conflict refusal, idempotency')
 
 # Native sidebar membership can succeed while runtime cwd drifts after continuation.

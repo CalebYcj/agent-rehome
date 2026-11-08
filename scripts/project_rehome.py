@@ -176,6 +176,8 @@ def pack(agent,project,out,home,selected_sessions=None,native=False,include_memo
     elif agent=='claude':
         roots=source_roots if native else [str(project)]
         sessions=sorted({session for root in roots for session in (home/'projects'/re.sub(r'[^a-zA-Z0-9_-]','-',root)).glob('*.jsonl')})
+        # Non-ASCII project names collapse to the same Claude folder; keep only sessions recorded under this project.
+        sessions=[s for s in sessions if within_roots(claude_session_cwd(s),roots)]
     else:
         sessions=[]
         with r.closing(sqlite3.connect(sqlite_read_uri(home/"state_5.sqlite"),uri=True)) as db:
@@ -326,6 +328,26 @@ def pack(agent,project,out,home,selected_sessions=None,native=False,include_memo
     if format_version==1:r.dump(out/'manifest.json',manifest)
     else:exchange.write_project(out,manifest,native_refs)
     print(json.dumps({'package':str(out),'files':len(entries),'bytes':sum(x['bytes'] for x in entries),'conversations':len(bundles),'attachments':len(assets),'empty_titles':empty_titles,'skipped':skipped,'user_next_steps':package_next_steps(out)},ensure_ascii=False))
+
+def claude_session_cwd(session):
+    """First cwd recorded in a Claude session file, or None when it has none."""
+    try:
+        with open(session,encoding='utf-8') as stream:
+            for line in stream:
+                try:row=json.loads(line)
+                except ValueError:continue
+                if isinstance(row,dict) and isinstance(row.get('cwd'),str) and row['cwd']:return row['cwd']
+    except OSError:return None
+    return None
+
+def within_roots(cwd,roots):
+    """A session with no recorded cwd, or one at or below a project root, belongs to it."""
+    if cwd is None:return True
+    key=path_key(cwd)
+    for root in roots:
+        base=path_key(root).rstrip('\\/')
+        if key==base or key.startswith(base+'\\') or key.startswith(base+'/'):return True
+    return False
 
 def load_manifest(package):return exchange.read_project(package)
 

@@ -1,6 +1,6 @@
 # Agent Rehome
 
-Version **0.4.0** · [中文](README.md) · [MIT](LICENSE)
+Version **0.5.0** · [中文](README.md) · [MIT](LICENSE)
 
 Move your Codex and Claude Code conversations and projects to another agent, and keep going.
 
@@ -140,6 +140,33 @@ python scripts/agent_rehome.py import "<transcript.json>" --to codex --cwd "<tar
 ```
 
 Inspect the preview, then remove `--dry-run`. Same-machine handoffs can use local paths directly.
+
+## Move every project at once
+
+`batch_rehome.py` lists every project with conversations in the source Agent, packs them all, and restores them all under one new folder. Each project still goes through the single-project checks (credential scan, space check, fresh target, backups); a project that fails is reported and the rest continue.
+
+```text
+python scripts/batch_rehome.py list --from all
+python scripts/batch_rehome.py pack --from codex --to claude --out "<new-batch-directory>"
+python scripts/batch_rehome.py restore "<batch-directory>" --to claude --root "<new-parent-directory>" --dry-run
+```
+
+- Claude: restart the desktop app once, then trust the restore folder once by starting a session there; every project under it is covered (verified on Windows).
+- Codex: each project folder asks for trust once. The dry run's `user_notice` says how many prompts to expect; adding projects and grouping chats is done by the Agent. A folder-open slower than 60 seconds is reported as `pending` and is re-checked, not resent.
+- Conversations whose project folder was deleted are skipped and listed.
+
+### Global rules ("main persona")
+
+Batch packs also carry the global rules file: `~/.codex/AGENTS.md` (or a non-empty `AGENTS.override.md`) or `~/.claude/CLAUDE.md`. Pass `--no-global-rules` to leave it out. Restore only previews it:
+
+```text
+python scripts/global_rules.py install "<batch-directory>" --to claude          # preview
+python scripts/global_rules.py install "<batch-directory>" --to claude --apply  # after the user agrees
+```
+
+- To Claude: the text is saved as `~/.claude/rehome/global-rules-from-codex.md` and one `@rehome/...` import line is appended to `~/.claude/CLAUDE.md`. Delete that line to undo.
+- To Codex: the text is appended inside begin/end markers to the file Codex reads. Delete the block to undo.
+- The text is never rewritten. The preview lists every line that names the old Agent, its paths or tools, and any `@` imports that were not carried. Writes are backed up; installing the same rules twice is skipped.
 
 ## Opening and desktop fallback
 

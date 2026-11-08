@@ -126,7 +126,7 @@ FORBIDDEN_FILES 中的文件名、源目录/包内符号链接、命中文本凭
 
 项目包可带surroundings元数据（旧包没有则使用空值）：skipped、config_secret_overrides、skill_directories；v1/v2均保留此信息。项目扫描允许来源Agent的明确子集：Claude settings.json、skills/commands/agents；Codex config.toml/config.json/settings.json。Claude项目Skills也可作为目标既有目录保留。凭据文件名、settings.local、会话缓存、符号链接和未知根条目仍跳过。打包前对.mcp.json、Claude settings和Codex配置用PATTERNS['credential']扫描，只报告路径；--allow-secrets-in-config显式放行不是脱敏或凭据文件排除的豁免。
 
-恢复先验证所有包字节，再纯计算规则、Skills桥接及配置停用。源文件保留；规则目标已有就跳过：AGENTS→CLAUDE生成@AGENTS.md一行，CLAUDE→AGENTS复制并注明来源，@引用只报告。Skills整目录（含资源文件和空目录）按来源/目标名称映射，既有同名目录整体跳过，内容不重写。用户级资产不采集，报告要求另行安装。普通大项目文件仍流式复制，不一次载入全部内容；参与桥接的规则/Skills/配置在内存预检。
+恢复先验证所有包字节，再纯计算规则、Skills桥接及配置停用。源文件保留；规则目标已有就跳过：AGENTS→CLAUDE生成@AGENTS.md一行，CLAUDE→AGENTS复制并注明来源，@引用只报告。Skills整目录（含资源文件和空目录）按来源/目标名称映射，既有同名目录整体跳过，内容不重写。单项目包不采集用户级资产，报告里提示需另行安装。批量包例外：默认把全局规则（主人格）打成 global-rules/（schema agent-rehome-global-rules/v1，带 SHA-256 和凭据扫描），恢复时只预览，由 global_rules.py install --apply 在用户同意后写入。到 Claude 是另存副本，再在 CLAUDE.md 加一行 @ 引用；到 Codex 是带标记的追加段落。两种都会先备份、可撤销、重复安装会跳过，原文不改写。用户级 Skills 和记忆仍不采集。普通大项目文件仍流式复制，不一次载入全部内容；参与桥接的规则/Skills/配置在内存预检。
 
 restore.json的surroundings包含generated、skipped、manual、references、mcp_servers、config_secret_overrides、directories、user_level和warnings。服务器命令/参数只作数据报告，不含env值；命中的密钥特征在命令报告中遮蔽。所有路线的.mcp.json（含无效JSON）只原样归档到.rehome/surroundings/originals/.mcp.json，根目录不留生效副本；manual说明显式审查/批准后才手动复制回根。归档碰撞拒绝，不自动启动或代批准。Claude settings的hooks/permissions/allowedTools及已知自动启动字段从生效副本移除，完整原件归档；可执行或权限相关Codex配置保守整体隔离。隔离判断非完整配置语义解析，不承诺所有未来字段安全。跨Agent commands/子Agent仅报告，不转换；hooks脚本不自动启用，目标实际加载另验收。
 

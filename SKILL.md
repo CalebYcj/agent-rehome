@@ -45,7 +45,19 @@ python scripts/agent_rehome.py transfer --from "claude:<id-or-jsonl>" --to codex
 python scripts/project_rehome.py restore "<exchange-project-package>" --to claude --cwd "<new-target-project>" --dry-run
 ```
 先预览体积和磁盘需求。超大项目优先用 pack --files reference，接收端指向已搬好的目录；--strict-files 要求文件清单完全匹配。默认排除 Git。周边配置及差异见 restore.json。
+
 转换可生成预算摘要；完整归档不等于模型加载全部历史。losses_summary、.rehome/losses/ 和 .rehome/exchange/ 保留降级证据。
+
+### 全部项目一次搬
+
+用户要搬"所有项目/全部对话"时，用 batch_rehome.py。先 list 给用户看清单和对话数，确认后再 pack，接收端用 restore 加 --root。每个项目仍走 project_rehome 的检查；文件夹已删除的项目会被跳过并列出。恢复到 Claude 后，请用户用根目录新开一个会话并亲手确认信任一次，根目录下的项目都会沿用，不要逐个项目请用户信任。恢复到 Codex 时，每个项目各要用户确认一次信任，不沿用上层文件夹。正式恢复前，先把预演结果里的 user_notice 告诉用户，说明一共要确认几次。恢复后按 agent_next 处理：pending 的项目用 list_projects 复查，不要重新添加；然后逐条 move_thread_to_project 归组，并核对 cwd。不要抢前台窗口或代点信任。
+
+批量包里如果有 global-rules（全局规则，也就是"主人格"），restore 只会给出 global_rules 预览。先把要写入的位置、撤销方法、每一条 mentions 行和 warnings 原样告诉用户，用户明确同意后，再运行 `global_rules.py install <批量包> --to <目标> --apply`。不要替用户改写原文；用户想改时，让用户自己改，或由用户逐条说明怎么改。
+```text
+python scripts/batch_rehome.py list --from all
+python scripts/batch_rehome.py pack --from codex --to claude --out "<new-batch-directory>" --dry-run
+python scripts/batch_rehome.py restore "<batch-directory>" --to claude --root "<new-parent-directory>" --dry-run
+```
 
 ## 安全与判断边界
 
