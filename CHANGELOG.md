@@ -2,6 +2,11 @@
 
 Historical entries describe their original checkpoints; current bounded evidence is in docs/VALIDATION.md.
 
+## 0.5.1
+
+- Receiver-only route is now the main path: `batch_rehome.py move` reads the source agent's local data directly, packs it next to the new folder and restores it in one step. The source agent is never opened and needs no login or quota.
+- Codex keeps older conversations compressed on disk (`.jsonl.zst`). `list`, `pack --dry-run` and `move --dry-run` now count them and say when a decoder is needed; a real run without one stops before writing anything.
+
 ## 0.5.0
 
 - Move everything at once: `batch_rehome.py` lists every project with conversations in Claude or Codex, packs them all, and restores them all under one new folder. A project that fails is reported and the rest continue.

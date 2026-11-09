@@ -4,6 +4,8 @@ list    --from claude|codex|all       show every project with conversations (rea
 pack    --from X --to Y --out DIR     one package per project inside DIR, plus batch.json and the
                                       global rules file (installed only after the user approves; see global_rules.py)
 restore DIR --to Y --root DIR         restore each package into ROOT/<project name>
+move    --from X --to Y --root DIR    receiver-only: read X's local data directly (no X app, login or quota
+                                      needed), pack next to ROOT, then restore into ROOT
 
 Each project still goes through project_rehome.pack/restore, so every single-project
 check (secret scan, space check, fresh target, backups) applies unchanged. One failing
@@ -17,6 +19,7 @@ import agent_rehome as r
 import project_rehome as pr
 import global_rules as gr
 from cli_output import print, configure
+from rollout_io import DECODER_HINT, is_compressed, zstd_decoder
 
 BATCH = 'batch.json'
 SCHEMA = 'agent-rehome-batch/v1'
@@ -59,11 +62,13 @@ def _codex_projects(home):
         columns = {row[1] for row in db.execute('pragma table_info(threads)')}
         stamp = 'updated_at' if 'updated_at' in columns else "''"
         archived = 'archived' if 'archived' in columns else '0'
-        for cwd, updated, is_archived in db.execute(f'select cwd,{stamp},{archived} from threads'):
+        for cwd, updated, is_archived, rollout in db.execute(f'select cwd,{stamp},{archived},rollout_path from threads'):
             if not cwd:
                 continue
-            item = found.setdefault(path_key(cwd), {'project': cwd, 'sessions': 0, 'archived': 0, 'last_active': ''})
+            item = found.setdefault(path_key(cwd), {'project': cwd, 'sessions': 0, 'archived': 0, 'compressed': 0, 'last_active': ''})
             item['sessions'] += 1
+            if rollout and is_compressed(rollout):
+                item['compressed'] += 1
             if is_archived:
                 item['archived'] += 1
             text = _stamp(updated)
@@ -135,6 +140,16 @@ def batch_pack(agent, out, to=None, home=None, projects=None, dry_run=False, fil
     else:
         chosen = listed
     native = to == agent
+    # Codex compresses older rollouts on disk; find out before writing anything, not one project at a time.
+    compressed = sum(x.get('compressed', 0) for x in chosen if x['exists'])
+    decoder_needed = None
+    if compressed and not zstd_decoder():
+        decoder_needed = {'compressed_conversations': compressed,
+                          'projects': sum(1 for x in chosen if x['exists'] and x.get('compressed')),
+                          'message': f'{compressed} 段较早的对话被压缩成了 .jsonl.zst，需要先装解压器才能搬。' + DECODER_HINT,
+                          'agent_next': 'Ask the user before installing anything; with their consent run: python -m pip install zstandard'}
+        if not dry_run:
+            raise ValueError(decoder_needed['message'] + '；什么都没写入')
     items, names = [], _names([x['project'] for x in chosen])
     if not dry_run:
         out.mkdir(parents=True)
@@ -163,6 +178,8 @@ def batch_pack(agent, out, to=None, home=None, projects=None, dry_run=False, fil
               'created_at': r.now(), 'projects': items}
     counts = {s: sum(1 for x in items if x['status'] == s) for s in ('packed', 'planned', 'skipped', 'failed')}
     record['summary'] = counts
+    if decoder_needed:
+        record['decoder_needed'] = decoder_needed
     if global_rules:
         # The user-level "main persona" file travels too; it is only installed after the user approves a preview.
         source = gr.source_file(agent, home)
@@ -264,6 +281,46 @@ def batch_restore(batch, to, root, home=None, dry_run=False, no_desktop=False, c
     return out
 
 
+def batch_move(agent, to, root, package=None, source_home=None, target_home=None, projects=None, dry_run=False,
+               no_desktop=False, convert=False, global_rules=True, files_mode='copy', include_git=False,
+               allow_secrets_in_config=False, **options):
+    """Receiver-only route: read the source agent's local data directly, then restore here.
+
+    The source agent is never called, so it needs no running app, no login and no quota; only its
+    data folder (and the project folders) must be on this computer, or copied here (--source-home)."""
+    root = Path(root).resolve()
+    package = Path(package).resolve() if package else root.with_name(root.name + '-rehome-package')
+    if root.exists():
+        raise ValueError('Restore root must be a new directory')
+    if package.is_relative_to(root) or root.is_relative_to(package):
+        raise ValueError('Package and restore root must be separate folders')
+    packed, _ = _quiet(lambda: batch_pack(agent, package, to, source_home, projects, dry_run, files_mode, include_git,
+                                          allow_secrets_in_config, global_rules))
+    out = {'schema': SCHEMA + '+move', 'source_agent': agent, 'target_agent': to, 'route': 'receiver-only',
+           'source_home': str(Path(source_home) if source_home else default_home(agent)), 'package': str(package),
+           'root': str(root), 'pack_summary': packed['summary'], 'global_rules_found': packed.get('global_rules', {}).get('status')}
+    if packed.get('decoder_needed'):
+        out['decoder_needed'] = packed['decoder_needed']
+    if dry_run:
+        out['projects'] = [{k: x[k] for k in ('project', 'name', 'status', 'sessions', 'reason') if k in x} for x in packed['projects']]
+        if to == 'codex' and not no_desktop and packed['summary']['planned']:
+            out['user_notice'] = (f'正式搬时，Codex 会为每个项目弹出一次「信任此文件夹」，共 {packed["summary"]["planned"]} 次。'
+                                  '请核对路径后逐个确认；其余由 Agent 完成。')
+        print(json.dumps(out, ensure_ascii=False))
+        return out
+    if not packed['summary']['packed']:
+        out['restore'] = None
+        print(json.dumps(out, ensure_ascii=False))
+        return out
+    restored, _ = _quiet(lambda: batch_restore(package, to, root, target_home, False, no_desktop, convert, **options))
+    out.update({k: restored[k] for k in ('projects', 'summary', 'user_next_steps', 'agent_next', 'global_rules', 'global_rules_next') if k in restored})
+    out['skipped_at_pack'] = [{'project': x['project'], 'reason': x.get('reason')} for x in packed['projects'] if x['status'] in ('skipped', 'failed')]
+    out['package_note'] = 'The package folder holds private copies; keep it as a backup or delete it yourself once the move is verified.'
+    r.dump(root / 'rehome-batch-move.json', out)
+    print(json.dumps(out, ensure_ascii=False))
+    return out
+
+
 def main():
     configure()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -282,6 +339,17 @@ def main():
     p.add_argument('--target-home', type=Path); p.add_argument('--dry-run', action='store_true'); p.add_argument('--no-desktop', action='store_true')
     p.add_argument('--convert', action='store_true')
     p.add_argument('--model'); p.add_argument('--claude-model'); p.add_argument('--claude-version'); p.add_argument('--desktop-registry')
+    p = sub.add_parser('move', help='Receiver-only: pack straight from the source data folder, then restore here')
+    p.add_argument('--from', dest='agent', choices=['claude', 'codex'], required=True)
+    p.add_argument('--to', choices=['claude', 'codex'], required=True)
+    p.add_argument('--root', type=Path, required=True, help='New parent folder; each project lands in ROOT/<name>')
+    p.add_argument('--package', type=Path, help='Where to keep the package (default: ROOT-rehome-package next to ROOT)')
+    p.add_argument('--source-home', type=Path, help="The source agent's data folder, e.g. one copied from the old computer")
+    p.add_argument('--target-home', type=Path); p.add_argument('--project', type=Path, action='append')
+    p.add_argument('--dry-run', action='store_true'); p.add_argument('--no-desktop', action='store_true'); p.add_argument('--convert', action='store_true')
+    p.add_argument('--no-global-rules', action='store_true'); p.add_argument('--files', dest='files_mode', choices=['copy', 'reference'], default='copy')
+    p.add_argument('--include-git', action='store_true'); p.add_argument('--allow-secrets-in-config', action='store_true')
+    p.add_argument('--model'); p.add_argument('--claude-model'); p.add_argument('--claude-version'); p.add_argument('--desktop-registry')
     a = ap.parse_args()
     if a.mode == 'list':
         agents = ['claude', 'codex'] if a.agent == 'all' else [a.agent]
@@ -295,7 +363,11 @@ def main():
                    not a.no_global_rules)
     else:
         options = {k: v for k, v in (('model', a.model), ('claude_model', a.claude_model), ('claude_version', a.claude_version), ('desktop_registry', a.desktop_registry)) if v}
-        batch_restore(a.batch, a.to, a.root, a.target_home, a.dry_run, a.no_desktop, a.convert, **options)
+        if a.mode == 'move':
+            batch_move(a.agent, a.to, a.root, a.package, a.source_home, a.target_home, a.project, a.dry_run, a.no_desktop,
+                       a.convert, not a.no_global_rules, a.files_mode, a.include_git, a.allow_secrets_in_config, **options)
+        else:
+            batch_restore(a.batch, a.to, a.root, a.target_home, a.dry_run, a.no_desktop, a.convert, **options)
 
 
 if __name__ == '__main__':

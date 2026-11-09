@@ -1,10 +1,10 @@
 # Agent Rehome
 
-版本 **0.5.0** · [English](README.en.md) · [MIT](LICENSE)
+版本 **0.5.1** · [English](README.en.md) · [MIT](LICENSE)
 
 把 Codex、Claude Code 的对话和项目，搬到另一个 Agent 接着做。
 
-在 Codex 里做了几个月的项目，想换 Claude 接着做？不用从头再讲一遍。两边装上这个 Skill，在原来的 Agent 里说一句“打包”，在新的 Agent 里说一句“接收”，聊天记录、图片和项目文件就一起搬过去，新的 Agent 直接接着聊。
+在 Codex 里做了几个月的项目，想换 Claude 接着做？不用从头再讲一遍。只要在新的 Agent 里装上这个 Skill，说一句“把 Codex 的项目全搬过来”，聊天记录、图片和项目文件就一起搬过去，新的 Agent 直接接着聊。旧的 Agent 不用打开，额度用完了也能搬，因为搬的是你电脑上的本地记录。
 
 - Codex → Claude、Claude → Codex 都能搬，同类之间也能搬
 - Windows、macOS 都能用，换电脑也能搬
@@ -18,11 +18,13 @@
    - Claude Code：`~/.claude/skills/agent-rehome/`
    - Codex：`~/.agents/skills/agent-rehome/`
 
-   搬出和搬入的两边都要装。也可以把本仓库链接发给你的 Agent，请它按这里的说明安装。
+   装在你要搬去的那个 Agent 里就行。也可以把本仓库链接发给你的 Agent，请它按这里的说明安装。
 2. **准备 Python 3.10+**：没有的话，Agent 会告诉你去哪下载。
-3. **打包**：在原来的 Agent 里说：`用 Agent Rehome 打包这个项目`。
-4. **接收**：同一台电脑直接进行；换电脑时先把整个包复制过去。然后在新的 Agent 里说：`用 Agent Rehome 接收这个搬家包：<包的位置>`。
+3. **说一句话**：在新的 Agent 里说：`用 Agent Rehome 把 Codex 的项目全搬过来`（反过来就说 Claude）。它会先列出清单给你确认，再一次搬完。
+4. **换了电脑**：先把旧电脑上的 `.codex` 或 `.claude` 文件夹，连同项目文件夹，一起复制到新电脑，再告诉 Agent 它们在哪。
 5. **接着聊**：按 Agent 的提示完成剩下的一两步，打开迁移过来的对话就能继续。
+
+旧电脑上也装了 Skill 的话，也可以按老办法分两步走：在原来的 Agent 里说“打包”，在新的 Agent 里说“接收这个搬家包”。
 
 > 搬家包里有你的私人对话和项目文件，不要上传到公开的地方。迁移会写入应用数据，建议先备份。
 
@@ -191,7 +193,17 @@ pack 默认按来源历史中的项目路径匹配会话。要指定精确来源
 
 ## 一次搬全部项目
 
-`batch_rehome.py` 先列出来源 Agent 里所有有对话的项目，再一次全部打包，接收端一次全部恢复。每个项目内部仍走上面的整项目打包和恢复，所以单项目的全部检查都照常生效，包括密钥扫描、空间检查、全新目标目录和备份。某个项目失败只记录原因，其余项目继续。
+最省事的是 `move`：接收端一个 Agent 直接读取来源 Agent 的本地数据，打包后马上恢复，不需要打开来源 Agent，它也不必登录或还有额度。
+
+```text
+python scripts/batch_rehome.py move --from codex --to claude --root "<new-parent-directory>" --dry-run
+python scripts/batch_rehome.py move --from codex --to claude --root "<new-parent-directory>"
+python scripts/batch_rehome.py move --from codex --to claude --root "<new-parent-directory>" --source-home "<从旧电脑复制来的 .codex>"
+```
+
+包默认放在根目录旁边的 `<root>-rehome-package`，里面是私人副本，留作备份，确认搬好后由你自己决定删不删。
+
+也可以分两步：`batch_rehome.py` 先列出来源 Agent 里所有有对话的项目，再一次全部打包，接收端一次全部恢复。每个项目内部仍走上面的整项目打包和恢复，所以单项目的全部检查都照常生效，包括密钥扫描、空间检查、全新目标目录和备份。某个项目失败只记录原因，其余项目继续。
 
 ```text
 python scripts/batch_rehome.py list --from all

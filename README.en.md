@@ -1,10 +1,10 @@
 # Agent Rehome
 
-Version **0.5.0** · [中文](README.md) · [MIT](LICENSE)
+Version **0.5.1** · [中文](README.md) · [MIT](LICENSE)
 
 Move your Codex and Claude Code conversations and projects to another agent, and keep going.
 
-Spent months on a project in Codex and want to continue in Claude? No need to explain it all again. Install this Skill on both sides, say "pack" in the old agent and "receive" in the new one. Chat history, images and project files move together, and the new agent picks up where you left off.
+Spent months on a project in Codex and want to continue in Claude? No need to explain it all again. Install this Skill in the new agent and say "move my Codex projects over". Chat history, images and project files move together, and the new agent picks up where you left off. The old agent does not need to be open, or even have quota left: what moves is the local history on your computer.
 
 - Codex → Claude, Claude → Codex, and same-agent moves
 - Windows and macOS, including moving to another computer
@@ -18,11 +18,13 @@ Spent months on a project in Codex and want to continue in Claude? No need to ex
    - Claude Code: `~/.claude/skills/agent-rehome/`
    - Codex: `~/.agents/skills/agent-rehome/`
 
-   Install it on both the source and the destination side. You can also send this repository link to your agent and ask it to install the Skill by these instructions.
+   Installing it in the agent you are moving to is enough. You can also send this repository link to your agent and ask it to install the Skill by these instructions.
 2. **Have Python 3.10+**: if it is missing, the agent tells you where to get it.
-3. **Pack**: in the old agent, say: `Use Agent Rehome to pack this project`.
-4. **Receive**: on the same computer, go ahead; for another computer, copy the whole package over first. Then in the new agent, say: `Use Agent Rehome to receive this package: <package location>`.
+3. **Say one sentence**: in the new agent, say: `Use Agent Rehome to move all my Codex projects here` (or Claude, the other way round). It lists them for you to confirm, then moves them in one go.
+4. **New computer**: copy the old `.codex` or `.claude` folder and your project folders over first, then tell the agent where they are.
 5. **Keep going**: follow the agent's prompts for the last step or two, then open the moved conversation and continue.
+
+If the old computer also has the Skill, the two-step way still works: say "pack" in the old agent and "receive this package" in the new one.
 
 > Packages contain your private conversations and project files. Don't upload them anywhere public. Moving writes application data, so keep a backup.
 
@@ -143,7 +145,16 @@ Inspect the preview, then remove `--dry-run`. Same-machine handoffs can use loca
 
 ## Move every project at once
 
-`batch_rehome.py` lists every project with conversations in the source Agent, packs them all, and restores them all under one new folder. Each project still goes through the single-project checks (credential scan, space check, fresh target, backups); a project that fails is reported and the rest continue.
+The easiest way is `move`: the receiving agent reads the source agent's local data directly, packs it, and restores it right away. The source agent is never opened and needs no login or quota.
+
+```text
+python scripts/batch_rehome.py move --from codex --to claude --root "<new-parent-directory>" --dry-run
+python scripts/batch_rehome.py move --from codex --to claude --root "<new-parent-directory>" --source-home "<.codex copied from the old computer>"
+```
+
+The package is kept next to the root as `<root>-rehome-package`. It holds private copies; keep it as a backup and delete it yourself once the move is verified.
+
+The two-step way also works: `batch_rehome.py` lists every project with conversations in the source Agent, packs them all, and restores them all under one new folder. Each project still goes through the single-project checks (credential scan, space check, fresh target, backups); a project that fails is reported and the rest continue.
 
 ```text
 python scripts/batch_rehome.py list --from all

@@ -82,6 +82,45 @@ with tempfile.TemporaryDirectory() as tmp:
     except ValueError as e: assert 'outside' in str(e)
     else: raise AssertionError('Root inside batch accepted')
 
+    # ---- Receiver-only move: read the source data folder directly, pack next to ROOT, restore into ROOT ----
+    moved = d / 'moved'
+    preview, _ = quiet(lambda: b.batch_move('codex', 'claude', moved, source_home=home, target_home=d / 'claude-move', dry_run=True, no_desktop=True, **M))
+    assert preview['route'] == 'receiver-only' and preview['pack_summary']['planned'] == 3 and not moved.exists()
+    assert not (d / 'moved-rehome-package').exists(), 'Dry run writes nothing'
+    done, _ = quiet(lambda: b.batch_move('codex', 'claude', moved, source_home=home, target_home=d / 'claude-move', no_desktop=True, **M))
+    assert done['summary'] == {'restored': 3, 'planned': 0, 'failed': 0}, done.get('summary')
+    assert (d / 'moved-rehome-package' / 'batch.json').is_file() and (moved / 'rehome-batch-move.json').is_file()
+    assert [x['reason'] for x in done['skipped_at_pack']] == ['project directory no longer exists']
+    assert done['user_next_steps']['options'][0] == '已重启，继续' and 'package_note' in done
+    assert len(list((d / 'claude-move' / 'projects').glob('*/*.jsonl'))) == 4
+    for bad in (moved, d / 'x'):
+        try: quiet(lambda: b.batch_move('codex', 'claude', bad, package=bad / 'pkg' if bad != moved else None, source_home=home, no_desktop=True, **M))
+        except ValueError as e: assert 'new directory' in str(e) or 'separate' in str(e), e
+        else: raise AssertionError('Unsafe move accepted')
+
+    # ---- Compressed rollouts (.jsonl.zst on disk, plain path in the DB) are found before anything is written ----
+    zh_home = d / 'codex-zst'; zh_home.mkdir()
+    zproj = d / 'zproj'; zproj.mkdir(); (zproj / 'a.txt').write_text('x', encoding='utf-8')
+    with contextlib.closing(sqlite3.connect(zh_home / 'state_5.sqlite')) as db:
+        db.executescript((Path(__file__).parent / 'fixtures/codex_schema.sql').read_text(encoding='utf-8'))
+        rollout = zh_home / 'sessions' / 'rollout-z.jsonl'; rollout.parent.mkdir()
+        (rollout.parent / 'rollout-z.jsonl.zst').write_bytes(b'\x28\xb5\x2f\xfd')
+        db.execute('insert into threads(id,rollout_path,created_at,updated_at,source,model_provider,cwd,title,sandbox_policy,approval_mode,archived,cli_version,first_user_message,memory_mode) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                   (f'{99:08d}-1234-4567-8123-123456789012', str(rollout), 1, 1, 'fixture', 'fixture', str(zproj), 't', '{}', 'fixture', 0, 'fixture', 'q', 'enabled'))
+        db.commit()
+    assert b.inventory('codex', zh_home)[0]['compressed'] == 1
+    from unittest.mock import patch as _patch
+    with _patch.object(b, 'zstd_decoder', return_value=None):
+        plan, _ = quiet(lambda: b.batch_move('codex', 'claude', d / 'zmoved', source_home=zh_home, dry_run=True, no_desktop=True, **M))
+        assert plan['decoder_needed']['compressed_conversations'] == 1 and 'zstandard' in plan['decoder_needed']['agent_next']
+        try: quiet(lambda: b.batch_move('codex', 'claude', d / 'zmoved', source_home=zh_home, no_desktop=True, **M))
+        except ValueError as e: assert '什么都没写入' in str(e)
+        else: raise AssertionError('Compressed history packed without a decoder')
+    assert not (d / 'zmoved').exists() and not (d / 'zmoved-rehome-package').exists()
+    with _patch.object(b, 'zstd_decoder', return_value='zstandard'):
+        plan, _ = quiet(lambda: b.batch_move('codex', 'claude', d / 'zmoved', source_home=zh_home, dry_run=True, no_desktop=True, **M))
+    assert 'decoder_needed' not in plan
+
     # ---- Claude: list reads the cwd inside each session, ignores mismatched folders ----
     ch = d / 'claude-src'
     for proj, count in ((projects[0], 2), (projects[1], 1)):
