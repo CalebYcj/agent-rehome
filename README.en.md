@@ -166,6 +166,10 @@ python scripts/batch_rehome.py restore "<batch-directory>" --to claude --root "<
 - Codex: each project folder asks for trust once. The dry run's `user_notice` says how many prompts to expect; adding projects and grouping chats is done by the Agent. A folder-open slower than 60 seconds is reported as `pending` and is re-checked, not resent.
 - Conversations whose project folder was deleted are skipped and listed.
 
+### Your own Skills
+
+Batch packs also carry the Skills you installed for every project: `~/.claude/skills/`, or `~/.agents/skills/` and `~/.codex/skills/` for Codex. Pass `--no-user-skills` to leave them out. Restore only lists them; `user_skills.py install "<batch-directory>" --to claude --apply` copies them after you agree (`--only NAME` to pick). Folders are copied unchanged, so some may not work as they are in the other agent. A Skill whose name already exists is skipped, never overwritten. Plugins, built-in dot folders, linked folders and Agent Rehome itself are left out. Bounded Windows Codex evidence covers a new conversation discovering and using a text-only Skill and a Python printing-script Skill. macOS and Claude user-level loading were not exercised in this check.
+
 ### Global rules ("main persona")
 
 Batch packs also carry the global rules file: `~/.codex/AGENTS.md` (or a non-empty `AGENTS.override.md`) or `~/.claude/CLAUDE.md`. Pass `--no-global-rules` to leave it out. Restore only previews it:
@@ -178,6 +182,28 @@ python scripts/global_rules.py install "<batch-directory>" --to claude --apply  
 - To Claude: the text is saved as `~/.claude/rehome/global-rules-from-codex.md` and one `@rehome/...` import line is appended to `~/.claude/CLAUDE.md`. Delete that line to undo.
 - To Codex: the text is appended inside begin/end markers to the file Codex reads. Delete the block to undo.
 - The text is never rewritten. The preview lists every line that names the old Agent, its paths or tools, and any `@` imports that were not carried. Writes are backed up; installing the same rules twice is skipped.
+
+### Receiving personal Skills on macOS
+
+Mac Claude and Mac Codex accept the same user-skills package. The installer resolves the current user home directory; macOS needs no additional path conversion.
+
+| Receiver | Installation directory | Installation record |
+|---|---|---|
+| Mac Claude | `~/.claude/skills/<name>/` | `~/.claude/rehome-backups/user-skills-<time>/installed.json` |
+| Mac Codex | `~/.agents/skills/<name>/` | `~/.codex/rehome-backups/user-skills-<time>/installed.json` |
+
+From the Agent Rehome installation directory on the Mac, preview the intended receiver and obtain user approval before applying.
+
+```text
+python3 scripts/user_skills.py install "<batch-directory>" --to claude
+python3 scripts/user_skills.py install "<batch-directory>" --to claude --apply
+python3 scripts/user_skills.py install "<batch-directory>" --to codex
+python3 scripts/user_skills.py install "<batch-directory>" --to codex --apply
+```
+
+Existing names are skipped. Codex checks both `~/.agents/skills/` and `~/.codex/skills/`. Start a new conversation after installation and check its actual Skill catalog. If the Skill is absent, the user can restart the app and check again. To undo, verify the directories listed in installed.json, then move them out of the Skill directory or delete them.
+
+Files are copied unchanged. On the Mac, check scripts for Windows absolute paths, PowerShell or .exe dependencies, and Intel versus Apple Silicon binaries. Install missing dependencies according to the individual Skill's instructions. These are conventional receiving steps; Mac runtime acceptance was not performed.
 
 ## Opening and desktop fallback
 

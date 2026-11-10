@@ -108,7 +108,7 @@ def bridges(payload,source,target,inventory_skips=(),secrets=(),directories=()):
     """Pure preflight: return new relative-path bytes and a report, without overwrites."""
     files=dict(payload);report={'generated':[],'skipped':list(inventory_skips),'manual':[],
         'references':[],'mcp_servers':[],'config_secret_overrides':list(secrets),
-        'user_level':'User rules, skills and plugins were not collected; install/review them separately on the destination.',
+        'user_level':'Project packages do not carry user-level rules, skills or plugins. Batch moves carry the global rules and user-level Skills separately (global_rules.py, user_skills.py); plugins are not collected.',
         'warnings':[]};cross=source in ('claude','codex') and source!=target
     report['directories']=list(directories)
     report['manual'].extend({'path':item['path'],'reason':'source-hook-scripts-not-enabled'} for item in inventory_skips if PurePosixPath(item['path']).name=='hooks')

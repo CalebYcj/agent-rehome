@@ -237,6 +237,49 @@ python scripts/global_rules.py install "<batch-directory>" --to claude --apply  
 - 写入前会先备份。重复安装同一份会自动跳过。目标位置已经有内容不同的同名文件或段落时会停下，不覆盖。
 - 单独搬全局规则用 `global_rules.py pack --from codex --out "<new-directory>"`。
 
+### 自己装的 Skill
+
+这里指装在个人目录下、对所有项目都生效的 Skill。Claude 的在 `~/.claude/skills/`；Codex 的在 `~/.agents/skills/` 和 `~/.codex/skills/`，装到 Codex 时写入 `~/.agents/skills/`。
+
+批量打包时默认一起带上，不想带就加 `--no-user-skills`。恢复时只给出清单，不会自动安装。
+
+```text
+python scripts/user_skills.py install "<batch-directory>" --to claude                 # 预览
+python scripts/user_skills.py install "<batch-directory>" --to claude --apply         # 用户看过并同意后再装
+python scripts/user_skills.py install "<batch-directory>" --to claude --only dbs --apply  # 只装指定的
+```
+
+- 每个 Skill 整个文件夹原样复制，不改写。跨 Agent 时，里面写的工具名和运行环境可能对不上，有些不能直接用。
+- 目标已有同名 Skill 时跳过，不覆盖。重复安装同一份会自动跳过。
+- 不搬：插件、点开头的内置目录、链接到别处的文件夹、Agent Rehome 自己。`.git`、`node_modules`、`__pycache__`、虚拟环境目录不复制。
+- 文件里疑似有密钥的 Skill 会被跳过并列出来。
+- 预览会标出哪些 Skill 带脚本。装好后新开一个对话才会出现在列表里，必要时重启应用。
+- 要撤销，删掉安装记录里列出的文件夹即可。记录在目标数据目录的 `rehome-backups/user-skills-<时间>/installed.json`。
+- 单独搬用 `user_skills.py pack --from codex --out "<new-directory>"`。
+- 已验证范围：Windows Codex 新会话能列出并使用两种合成用户级 Skill，覆盖纯文字和 Python 打印脚本。macOS 和 Claude 用户级加载未做本轮实测。
+
+#### macOS 接收个人 Skill
+
+接收端的 Claude 或 Codex 使用同一份 user-skills 包。安装器按当前用户的主目录定位，macOS 无需额外的路径转换。
+
+| 接收端 | 安装目录 | 安装记录 |
+|---|---|---|
+| Mac Claude | `~/.claude/skills/<名字>/` | `~/.claude/rehome-backups/user-skills-<时间>/installed.json` |
+| Mac Codex | `~/.agents/skills/<名字>/` | `~/.codex/rehome-backups/user-skills-<时间>/installed.json` |
+
+在 Mac 上打开 Agent Rehome 的安装目录，先预览对应的目标，再经用户确认安装。
+
+```text
+python3 scripts/user_skills.py install "<batch-directory>" --to claude
+python3 scripts/user_skills.py install "<batch-directory>" --to claude --apply
+python3 scripts/user_skills.py install "<batch-directory>" --to codex
+python3 scripts/user_skills.py install "<batch-directory>" --to codex --apply
+```
+
+同名冲突仍跳过，Codex 会同时检查 `~/.agents/skills/` 和 `~/.codex/skills/`。安装完成后新开会话，以接收端实际列出的 Skill 为准；如果未出现，由用户重启应用后再查看。撤销时按 installed.json 核对本次安装目录，再移出 Skill 目录或删除。
+
+文件原样复制，Mac 接收后还需留意脚本里的 Windows 绝对路径、PowerShell 或 .exe 依赖，以及 Intel／Apple Silicon 的二进制差别。缺少依赖时按具体 Skill 的说明安装。这里提供常规接收步骤，未做 Mac 实机验收。
+
 ## 迁移后怎么打开
 
 **Claude 桌面版：** Windows 和 macOS 默认尝试登记 Code 会话；Mac 布局为 `~/Library/Application Support/Claude/claude-code-sessions/<org>/<account>/local_*.json`，已核实的环境及样本边界见 [验收记录](docs/VALIDATION.md)；应用按正常流程重启后才会加载新登记，工具不会自行重启。首次使用新目录需由用户确认信任。独立 CLI 的登录状态可能与桌面不同，本工具不复制认证信息。`--no-desktop` 只写历史。自定义目标数据根不自动登记，需要 `--desktop-registry "<verified-registry-directory>"`；未找到目录时 JSON 结果包含 warnings，侧边栏仍待验证。
@@ -258,7 +301,7 @@ Codex 项目要跨 Agent 转换，请用不带 `--native` 的 `pack` 生成交�
 - Codex 同类恢复的有限样本保留压缩记录且可以续聊。尚未证明模型解开了其中的加密内容。压缩需由用户在应用中手动触发，本工具不触发压缩。
 - 跨账号迁移未验证。Codex 的 Skill 目录在已测续聊中未刷新，跨机历史仍记录来源机路径。
 
-- 项目 `.claude/` 只收集 settings.json、skills、commands、agents；项目 `.codex/` 只收集 config.toml/config.json/settings.json。settings.local、凭据、缓存和未知目录跳过并报告；用户级规则、Skills、插件不收集。
+- 项目 `.claude/` 只收集 settings.json、skills、commands、agents；项目 `.codex/` 只收集 config.toml/config.json/settings.json。settings.local、凭据、缓存和未知目录跳过并报告；项目包不收集用户级规则、Skills、插件。用户级规则和 Skills 由批量搬家另外带上（见上文），插件不搬。
 - 跨 Agent 在目标缺失时桥接逐目录规则：Codex→Claude 生成 `@AGENTS.md` 引用；Claude→Codex 生成注明来源的 AGENTS.md 副本，`@` 引用只列出、不展开。Skills按目录复制，保留源文件，目标已有同名目录跳过；工具名未转换。所有生成/跳过项见 `.rehome/restore.json` 的 `surroundings`。
 - `.mcp.json` 在同Agent及跨Agent恢复时均原样归档到 `.rehome/surroundings/originals/.mcp.json`，项目根不留生效副本，避免目标应用信任目录后自动连接。报告服务器及启动命令，不列环境变量值；如需启用，用户明确审查/批准后手动复制回项目根，恢复不代启用。Claude settings 的 hooks、来源权限和已知自动启动字段从生效副本移除；含可执行或权限字段的 Codex 配置整体隔离。跨Agent commands/子Agent只提示，不转换；hooks脚本不自动启用，应用加载另验收。
 - `.mcp.json`、Claude settings 和 Codex 项目配置在打包前用现有密钥特征扫描；命中拒绝且不创建包。明确使用 `--allow-secrets-in-config` 可允许该配置进入私有包，覆盖清单会记录路径；原字节仍可能含密钥，不能公开。这不是完整秘密检测，也不会安装用户级工具或插件。

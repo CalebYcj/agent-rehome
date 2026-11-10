@@ -3,6 +3,7 @@
 list    --from claude|codex|all       show every project with conversations (read-only)
 pack    --from X --to Y --out DIR     one package per project inside DIR, plus batch.json and the
                                       global rules file (installed only after the user approves; see global_rules.py)
+                                      and the user-level Skills (same rule; see user_skills.py)
 restore DIR --to Y --root DIR         restore each package into ROOT/<project name>
 move    --from X --to Y --root DIR    receiver-only: read X's local data directly (no X app, login or quota
                                       needed), pack next to ROOT, then restore into ROOT
@@ -18,6 +19,7 @@ from platform_paths import path_key, portable_name, sqlite_read_uri
 import agent_rehome as r
 import project_rehome as pr
 import global_rules as gr
+import user_skills as us
 from cli_output import print, configure
 from rollout_io import DECODER_HINT, is_compressed, zstd_decoder
 
@@ -125,7 +127,7 @@ def _quiet(call):
     return result, last
 
 
-def batch_pack(agent, out, to=None, home=None, projects=None, dry_run=False, files_mode='copy', include_git=False, allow_secrets_in_config=False, global_rules=True):
+def batch_pack(agent, out, to=None, home=None, projects=None, dry_run=False, files_mode='copy', include_git=False, allow_secrets_in_config=False, global_rules=True, user_skills=True):
     home = Path(home) if home else default_home(agent)
     out = Path(out).resolve()
     if out.exists():
@@ -193,6 +195,19 @@ def batch_pack(agent, out, to=None, home=None, projects=None, dry_run=False, fil
                 record['global_rules'] = {k: packed[k] for k in ('status', 'source_file', 'bytes')} | {'mentions': len(packed['mentions'])}
             except (ValueError, OSError) as error:
                 record['global_rules'] = {'status': 'failed', 'reason': str(error)}
+    if user_skills:
+        # Skills the user installed for every project. Copied into the package; installed only after the user approves a preview.
+        try:
+            if dry_run:
+                found, left = us.inventory(agent, home, allow_secrets_in_config)
+                record['user_skills'] = {'status': 'planned' if found else 'none', 'count': len(found),
+                                         'names': [x['name'] for x in found], 'skipped': left}
+            else:
+                packed = us.pack(agent, out, home, allow_secrets_in_config)
+                record['user_skills'] = {'status': packed['status'], 'count': len(packed.get('skills', [])),
+                                         'names': [x['name'] for x in packed.get('skills', [])], 'skipped': packed['skipped']}
+        except (ValueError, OSError) as error:
+            record['user_skills'] = {'status': 'failed', 'reason': str(error)}
     if not dry_run:
         r.dump(out / BATCH, record)
         record['user_next_steps'] = {
@@ -275,6 +290,14 @@ def batch_restore(batch, to, root, home=None, dry_run=False, no_desktop=False, c
         if out['global_rules'].get('status') == 'planned':
             out['global_rules_next'] = ('Not installed yet. Show the user this preview, including every mentions line and warning, '
                                         f'then run: global_rules.py install "{batch}" --to {to} --apply only after they agree.')
+    if (batch / us.DIRNAME).is_dir():
+        try:
+            out['user_skills'] = us.plan(batch, to, home)
+        except (ValueError, OSError) as error:
+            out['user_skills'] = {'status': 'blocked', 'reason': str(error)}
+        if out['user_skills'].get('status') == 'planned':
+            out['user_skills_next'] = ('Not installed yet. Show the user the install list, the skipped list and every warning, let them drop any, '
+                                       f'then run: user_skills.py install "{batch}" --to {to} --apply (add --only NAME to pick) only after they agree.')
     if not dry_run and results:
         r.dump(root / 'rehome-batch-restore.json', out)
     print(json.dumps(out, ensure_ascii=False))
@@ -283,7 +306,7 @@ def batch_restore(batch, to, root, home=None, dry_run=False, no_desktop=False, c
 
 def batch_move(agent, to, root, package=None, source_home=None, target_home=None, projects=None, dry_run=False,
                no_desktop=False, convert=False, global_rules=True, files_mode='copy', include_git=False,
-               allow_secrets_in_config=False, **options):
+               allow_secrets_in_config=False, user_skills=True, **options):
     """Receiver-only route: read the source agent's local data directly, then restore here.
 
     The source agent is never called, so it needs no running app, no login and no quota; only its
@@ -295,13 +318,16 @@ def batch_move(agent, to, root, package=None, source_home=None, target_home=None
     if package.is_relative_to(root) or root.is_relative_to(package):
         raise ValueError('Package and restore root must be separate folders')
     packed, _ = _quiet(lambda: batch_pack(agent, package, to, source_home, projects, dry_run, files_mode, include_git,
-                                          allow_secrets_in_config, global_rules))
+                                          allow_secrets_in_config, global_rules, user_skills))
     out = {'schema': SCHEMA + '+move', 'source_agent': agent, 'target_agent': to, 'route': 'receiver-only',
            'source_home': str(Path(source_home) if source_home else default_home(agent)), 'package': str(package),
-           'root': str(root), 'pack_summary': packed['summary'], 'global_rules_found': packed.get('global_rules', {}).get('status')}
+           'root': str(root), 'pack_summary': packed['summary'], 'global_rules_found': packed.get('global_rules', {}).get('status'),
+           'user_skills_found': packed.get('user_skills', {}).get('count', 0)}
     if packed.get('decoder_needed'):
         out['decoder_needed'] = packed['decoder_needed']
     if dry_run:
+        if packed.get('user_skills'):
+            out['user_skills'] = packed['user_skills']
         out['projects'] = [{k: x[k] for k in ('project', 'name', 'status', 'sessions', 'reason') if k in x} for x in packed['projects']]
         if to == 'codex' and not no_desktop and packed['summary']['planned']:
             out['user_notice'] = (f'正式搬时，Codex 会为每个项目弹出一次「信任此文件夹」，共 {packed["summary"]["planned"]} 次。'
@@ -313,7 +339,7 @@ def batch_move(agent, to, root, package=None, source_home=None, target_home=None
         print(json.dumps(out, ensure_ascii=False))
         return out
     restored, _ = _quiet(lambda: batch_restore(package, to, root, target_home, False, no_desktop, convert, **options))
-    out.update({k: restored[k] for k in ('projects', 'summary', 'user_next_steps', 'agent_next', 'global_rules', 'global_rules_next') if k in restored})
+    out.update({k: restored[k] for k in ('projects', 'summary', 'user_next_steps', 'agent_next', 'global_rules', 'global_rules_next', 'user_skills', 'user_skills_next') if k in restored})
     out['skipped_at_pack'] = [{'project': x['project'], 'reason': x.get('reason')} for x in packed['projects'] if x['status'] in ('skipped', 'failed')]
     out['package_note'] = 'The package folder holds private copies; keep it as a backup or delete it yourself once the move is verified.'
     r.dump(root / 'rehome-batch-move.json', out)
@@ -334,6 +360,7 @@ def main():
     p.add_argument('--dry-run', action='store_true'); p.add_argument('--files', dest='files_mode', choices=['copy', 'reference'], default='copy')
     p.add_argument('--include-git', action='store_true'); p.add_argument('--allow-secrets-in-config', action='store_true')
     p.add_argument('--no-global-rules', action='store_true', help='Leave the global rules (main persona) file out')
+    p.add_argument('--no-user-skills', action='store_true', help='Leave the user-level Skills out')
     p = sub.add_parser('restore'); p.add_argument('batch', type=Path); p.add_argument('--to', choices=['claude', 'codex'], required=True)
     p.add_argument('--root', type=Path, required=True, help='New parent folder; each project lands in ROOT/<name>')
     p.add_argument('--target-home', type=Path); p.add_argument('--dry-run', action='store_true'); p.add_argument('--no-desktop', action='store_true')
@@ -347,7 +374,8 @@ def main():
     p.add_argument('--source-home', type=Path, help="The source agent's data folder, e.g. one copied from the old computer")
     p.add_argument('--target-home', type=Path); p.add_argument('--project', type=Path, action='append')
     p.add_argument('--dry-run', action='store_true'); p.add_argument('--no-desktop', action='store_true'); p.add_argument('--convert', action='store_true')
-    p.add_argument('--no-global-rules', action='store_true'); p.add_argument('--files', dest='files_mode', choices=['copy', 'reference'], default='copy')
+    p.add_argument('--no-global-rules', action='store_true'); p.add_argument('--no-user-skills', action='store_true')
+    p.add_argument('--files', dest='files_mode', choices=['copy', 'reference'], default='copy')
     p.add_argument('--include-git', action='store_true'); p.add_argument('--allow-secrets-in-config', action='store_true')
     p.add_argument('--model'); p.add_argument('--claude-model'); p.add_argument('--claude-version'); p.add_argument('--desktop-registry')
     a = ap.parse_args()
@@ -360,12 +388,13 @@ def main():
                           'conversations': sum(x['sessions'] for x in rows)}, ensure_ascii=False))
     elif a.mode == 'pack':
         batch_pack(a.agent, a.out, a.to, a.source_home, a.project, a.dry_run, a.files_mode, a.include_git, a.allow_secrets_in_config,
-                   not a.no_global_rules)
+                   not a.no_global_rules, not a.no_user_skills)
     else:
         options = {k: v for k, v in (('model', a.model), ('claude_model', a.claude_model), ('claude_version', a.claude_version), ('desktop_registry', a.desktop_registry)) if v}
         if a.mode == 'move':
             batch_move(a.agent, a.to, a.root, a.package, a.source_home, a.target_home, a.project, a.dry_run, a.no_desktop,
-                       a.convert, not a.no_global_rules, a.files_mode, a.include_git, a.allow_secrets_in_config, **options)
+                       a.convert, not a.no_global_rules, a.files_mode, a.include_git, a.allow_secrets_in_config,
+                       not a.no_user_skills, **options)
         else:
             batch_restore(a.batch, a.to, a.root, a.target_home, a.dry_run, a.no_desktop, a.convert, **options)
 

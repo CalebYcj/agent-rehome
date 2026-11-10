@@ -12,6 +12,7 @@ description: 换 AI 不用从头再来。把 Codex 和 Claude Code 里的聊天�
 - **聊天记录**：在新 AI 的侧边栏里都能翻到。
 - **项目**：文件和分组一起搬，接着聊时它知道做到哪、约定过什么。
 - **习惯**：你给旧 AI 定的全局规则，看过、同意后也能带上。
+- **Skill**：你自己装的 Skill，看过清单、同意后也能带上。
 
 **怎么用**：在新的 AI 里说"用 Agent Rehome 把 Codex 的项目全搬过来"（反过来就说 Claude）。它会先列出清单给你确认，再一次搬完。旧的 AI 不用打开，原来的对话也不会动。
 
@@ -65,6 +66,10 @@ python scripts/project_rehome.py restore "<exchange-project-package>" --to claud
 用户要搬"所有项目/全部对话"时，用 batch_rehome.py。先 `list` 给用户看清单和对话数，再 `move --dry-run` 预演，用户确认后去掉 `--dry-run` 正式搬：一条命令完成打包和恢复，包放在根目录旁边的 `<root>-rehome-package`，留作备份，由用户自己决定删不删。两段式时，来源端 pack，接收端 restore 加 --root。每个项目仍走 project_rehome 的检查；文件夹已删除的项目会被跳过并列出。恢复到 Claude 后，请用户用根目录新开一个会话并亲手确认信任一次，根目录下的项目都会沿用，不要逐个项目请用户信任。恢复到 Codex 时，每个项目各要用户确认一次信任，不沿用上层文件夹。正式恢复前，先把预演结果里的 user_notice 告诉用户，说明一共要确认几次。恢复后按 agent_next 处理：pending 的项目用 list_projects 复查，不要重新添加；然后逐条 move_thread_to_project 归组，并核对 cwd。不要抢前台窗口或代点信任。
 
 批量包里如果有 global-rules（全局规则，也就是"主人格"），restore 只会给出 global_rules 预览。先把要写入的位置、撤销方法、每一条 mentions 行和 warnings 原样告诉用户，用户明确同意后，再运行 `global_rules.py install <批量包> --to <目标> --apply`。不要替用户改写原文；用户想改时，让用户自己改，或由用户逐条说明怎么改。
+
+批量包里如果有 user-skills（用户自己装的 Skill），restore 只会给出 user_skills 预览。把要装的清单（名字、说明、是否带脚本）、跳过的清单和原因、每一条 warnings 原样告诉用户，让用户决定装哪些；用户明确同意后，再运行 `user_skills.py install <批量包> --to <目标> --apply`，只装一部分就加 `--only <名字>`。目标已有同名 Skill 时跳过，不覆盖。Skill 原样复制，不改写；跨 Agent 时要告诉用户有些可能不能直接用。插件、内置 Skill 和本 Skill 自己不搬。不想带就加 `--no-user-skills`。
+
+macOS 接收个人 Skill 使用同一安装命令（通常用 python3）：Claude 的目标是 ~/.claude/skills，Codex 是 ~/.agents/skills。先预览，再按既有授权或用户确认 apply；新开会话加载，必要时由用户重启。Windows 脚本路径、PowerShell/.exe 依赖和 CPU 架构不能靠原样复制适配。Mac 实机效果未验收，完整步骤见 README 的 macOS 接收个人 Skill。
 ```text
 python scripts/batch_rehome.py list --from all
 python scripts/batch_rehome.py move --from codex --to claude --root "<new-parent-directory>" --dry-run
