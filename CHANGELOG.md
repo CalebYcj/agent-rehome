@@ -2,7 +2,7 @@
 
 Historical entries describe their original checkpoints; current bounded evidence is in docs/VALIDATION.md.
 
-## Unreleased
+## 0.5.2
 
 - Move your own Skills: batch packs now include the Skills installed for every project (`~/.claude/skills`, `~/.agents/skills`, `~/.codex/skills`). Restore only lists them; `user_skills.py install --apply` copies them after the user agrees, `--only NAME` picks. Folders are copied unchanged and an existing Skill of the same name is never overwritten. Plugins, built-in dot folders, linked folders and Agent Rehome itself are left out; a Skill with a possible secret is skipped and listed. `--no-user-skills` leaves them out.
 

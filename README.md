@@ -1,6 +1,6 @@
 # Agent Rehome
 
-版本 **0.5.1** · [English](README.en.md) · [MIT](LICENSE)
+版本 **0.5.2** · [English](README.en.md) · [MIT](LICENSE)
 
 把 Codex、Claude Code 的对话和项目，搬到另一个 Agent 接着做。
 
@@ -256,7 +256,7 @@ python scripts/user_skills.py install "<batch-directory>" --to claude --only dbs
 - 预览会标出哪些 Skill 带脚本。装好后新开一个对话才会出现在列表里，必要时重启应用。
 - 要撤销，删掉安装记录里列出的文件夹即可。记录在目标数据目录的 `rehome-backups/user-skills-<时间>/installed.json`。
 - 单独搬用 `user_skills.py pack --from codex --out "<new-directory>"`。
-- 已验证范围：Windows Codex 新会话能列出并使用两种合成用户级 Skill，覆盖纯文字和 Python 打印脚本。macOS 和 Claude 用户级加载未做本轮实测。
+- 已验证范围：Windows 上两个方向都实测过。Codex 新会话能列出并使用从 Claude 搬来的合成 Skill；Claude 新会话能列出从 Codex 两个位置搬来的合成 Skill，正在运行的会话装好后马上可用。都覆盖纯文字和 Python 打印脚本。macOS 未做实测。
 
 #### macOS 接收个人 Skill
 

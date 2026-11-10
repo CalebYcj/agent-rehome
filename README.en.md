@@ -1,6 +1,6 @@
 # Agent Rehome
 
-Version **0.5.1** · [中文](README.md) · [MIT](LICENSE)
+Version **0.5.2** · [中文](README.md) · [MIT](LICENSE)
 
 Move your Codex and Claude Code conversations and projects to another agent, and keep going.
 
@@ -168,7 +168,7 @@ python scripts/batch_rehome.py restore "<batch-directory>" --to claude --root "<
 
 ### Your own Skills
 
-Batch packs also carry the Skills you installed for every project: `~/.claude/skills/`, or `~/.agents/skills/` and `~/.codex/skills/` for Codex. Pass `--no-user-skills` to leave them out. Restore only lists them; `user_skills.py install "<batch-directory>" --to claude --apply` copies them after you agree (`--only NAME` to pick). Folders are copied unchanged, so some may not work as they are in the other agent. A Skill whose name already exists is skipped, never overwritten. Plugins, built-in dot folders, linked folders and Agent Rehome itself are left out. Bounded Windows Codex evidence covers a new conversation discovering and using a text-only Skill and a Python printing-script Skill. macOS and Claude user-level loading were not exercised in this check.
+Batch packs also carry the Skills you installed for every project: `~/.claude/skills/`, or `~/.agents/skills/` and `~/.codex/skills/` for Codex. Pass `--no-user-skills` to leave them out. Restore only lists them; `user_skills.py install "<batch-directory>" --to claude --apply` copies them after you agree (`--only NAME` to pick). Folders are copied unchanged, so some may not work as they are in the other agent. A Skill whose name already exists is skipped, never overwritten. Plugins, built-in dot folders, linked folders and Agent Rehome itself are left out. Bounded Both directions were checked on Windows: a new Codex conversation discovered and used Skills moved from Claude, and Claude listed Skills moved from both Codex folders, usable at once even in a running conversation. Both cover a text-only Skill and a Python printing-script Skill. macOS was not exercised.
 
 ### Global rules ("main persona")
 

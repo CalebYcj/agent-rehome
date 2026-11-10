@@ -8,6 +8,8 @@
 
 0.5.0 新增批量搬家和全局规则：Windows 桌面版上 Codex → Claude、Claude → Codex 各 3 个合成项目批量恢复、历史和续聊通过；Claude 信任根目录一次即覆盖子项目；Codex 每个项目仍需各自确认信任；全局规则在两端的新会话中都被加载（项目级同路径测试）。Mac 未在 0.5.0 上重测。
 
+0.5.2 新增搬用户自己装的 Skill：Windows 上两个方向都用合成 Skill 实测过。Claude → Codex，Codex 新会话能列出并使用纯文字和带 Python 脚本的 Skill；Codex → Claude，两个来源位置都能读到，Claude 新会话能列出，正在运行的会话装好后马上可用。同名 Skill 跳过不覆盖，重复安装自动跳过。跨 Agent 时 Skill 内的工具名、路径和依赖不转换。Mac 未实测。
+
 ### 实机环境
 
 | 端 | 有证据的环境 |
