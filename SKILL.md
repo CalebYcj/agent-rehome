@@ -63,7 +63,9 @@ python scripts/project_rehome.py restore "<exchange-project-package>" --to claud
 
 ### 全部项目一次搬
 
-用户要搬"所有项目/全部对话"时，用 batch_rehome.py。先 `list` 给用户看清单和对话数，再 `move --dry-run` 预演，用户确认后去掉 `--dry-run` 正式搬：一条命令完成打包和恢复，包放在根目录旁边的 `<root>-rehome-package`，留作备份，由用户自己决定删不删。两段式时，来源端 pack，接收端 restore 加 --root。每个项目仍走 project_rehome 的检查；文件夹已删除的项目会被跳过并列出。恢复到 Claude 后，请用户用根目录新开一个会话并亲手确认信任一次，根目录下的项目都会沿用，不要逐个项目请用户信任。恢复到 Codex 时，每个项目各要用户确认一次信任，不沿用上层文件夹。正式恢复前，先把预演结果里的 user_notice 告诉用户，说明一共要确认几次。恢复后按 agent_next 处理：pending 的项目用 list_projects 复查，不要重新添加；然后逐条 move_thread_to_project 归组，并核对 cwd。不要抢前台窗口或代点信任。
+用户要搬"所有项目/全部对话"时，用 batch_rehome.py。先 `list` 盘点项目和对话，再 `move --dry-run` 预演。已有迁移授权时继续正式搬，无需重复确认。批量命令完成打包和恢复，包默认放在根目录旁的 `<root>-rehome-package`。缺失项目目录的记录会列出，单独核对可恢复的历史。两段式时由来源端 pack、接收端 restore 加 --root。恢复到 Claude 后，请用户亲手确认应用实际显示的目录信任提示。
+
+**Codex 侧边栏验收是迁移最后一步。** Claude 无法登录或启动时，仍由 Codex 从本机 Claude 数据目录直接读取、恢复、添加项目、逐条归组并验收。文件写入、索引可查、登记请求已发、用户点过信任，都是中间状态。按 [Codex 项目绑定流程](docs/CODEX_PROJECT_BINDING.md) 从恢复回执继续，逐一核对侧边栏项目、聊天归属与 cwd 后才报告完成。若只缺用户处理实际出现的信任提示，汇报该阻塞并保留回执，用户确认后继续归组。对已迁入或已归档的项目只处理当前请求范围，切勿用重导入替代归组。
 
 批量包里如果有 global-rules（全局规则，也就是"主人格"），restore 只会给出 global_rules 预览。先把要写入的位置、撤销方法、每一条 mentions 行和 warnings 原样告诉用户，用户明确同意后，再运行 `global_rules.py install <批量包> --to <目标> --apply`。不要替用户改写原文；用户想改时，让用户自己改，或由用户逐条说明怎么改。
 

@@ -258,6 +258,12 @@ def batch_restore(batch, to, root, home=None, dry_run=False, no_desktop=False, c
             result['codex_project'] = ('registered' if registry.get('registered') or registry.get('project_id') and not registry.get('pending')
                                        else 'pending' if registry.get('pending') else 'not_registered')
             result['thread_binding_required'] = registry.get('thread_binding_required', [])
+            result['sidebar'] = {
+                'status': 'not_requested' if no_desktop else 'verification_required',
+                'project_path': str(dest),
+                'thread_ids': [session['id'] for session in state['sessions']],
+                'folder_open_pending': bool(registry.get('pending')),
+            }
         results.append(result)
     summary = {s: sum(1 for x in results if x['status'] == s) for s in ('restored', 'planned', 'failed')}
     out = {'schema': SCHEMA + '+restore', 'target_agent': to, 'root': str(root), 'projects': results, 'summary': summary}
@@ -275,13 +281,17 @@ def batch_restore(batch, to, root, home=None, dry_run=False, no_desktop=False, c
                                       'projects': restored, 'options': ['已重启，继续', '稍后再说']}
         else:
             pending = [x['target'] for x in results if x.get('codex_project') in ('pending', 'not_registered')]
-            out['agent_next'] = ('Re-check pending projects with native list_projects (do not resend folder-open), '
-                                 'then move every thread_binding_required ID to its project with move_thread_to_project and verify cwd.')
-            out['user_next_steps'] = {'title': '⚠ 还差一步：确认信任提示，等 Agent 完成归组',
-                                      'instructions': ([f'还有 {len(pending)} 个项目在等「信任此文件夹」确认，请逐个核对路径后确认。'] if pending else [])
-                                                      + ['每个项目在 Codex 里需要单独确认一次信任，这是 Codex 的规则。其余由 Agent 逐个归组并复查。'],
-                                      'projects': restored, 'pending_trust': pending,
-                                      'options': ['已全部确认，继续', '稍后再说']}
+            out['sidebar_status'] = 'not_requested' if no_desktop else 'verification_required'
+            if not no_desktop:
+                out['agent_next'] = ('Complete docs/CODEX_PROJECT_BINDING.md before reporting success. '
+                                     'Use list_projects, navigate_to_codex_page, move_thread_to_project and list_threads '
+                                     'to verify every restored project and thread from the saved receipt. '
+                                     'Resume sidebar work from this receipt after trust; do not import again.')
+                if pending:
+                    out['user_next_steps'] = {'title': 'Codex 侧边栏登记进行中',
+                                              'instructions': ['如出现「信任此文件夹」，请核对路径并确认。Codex 会继续登记、归组和验收。'],
+                                              'projects': restored, 'pending_trust': pending,
+                                              'options': ['已确认，继续', '稍后再说']}
     if (batch / gr.DIRNAME).is_dir():
         try:
             out['global_rules'] = gr.plan(batch, to, home)
@@ -339,7 +349,7 @@ def batch_move(agent, to, root, package=None, source_home=None, target_home=None
         print(json.dumps(out, ensure_ascii=False))
         return out
     restored, _ = _quiet(lambda: batch_restore(package, to, root, target_home, False, no_desktop, convert, **options))
-    out.update({k: restored[k] for k in ('projects', 'summary', 'user_next_steps', 'agent_next', 'global_rules', 'global_rules_next', 'user_skills', 'user_skills_next') if k in restored})
+    out.update({k: restored[k] for k in ('projects', 'summary', 'sidebar_status', 'user_next_steps', 'agent_next', 'global_rules', 'global_rules_next', 'user_skills', 'user_skills_next') if k in restored})
     out['skipped_at_pack'] = [{'project': x['project'], 'reason': x.get('reason')} for x in packed['projects'] if x['status'] in ('skipped', 'failed')]
     out['package_note'] = 'The package folder holds private copies; keep it as a backup or delete it yourself once the move is verified.'
     r.dump(root / 'rehome-batch-move.json', out)

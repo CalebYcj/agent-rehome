@@ -159,13 +159,22 @@ with tempfile.TemporaryDirectory() as tmp:
                  {'registered': False, 'pending': True, 'thread_binding_required': ['t2']}])
     def fake(pkg, dest, to, home, dry_run=False, **kw):
         if not dry_run: Path(dest).mkdir(parents=True)
-        return {'sessions': [{'title': 'x'}]} if dry_run else {'sessions': [{'title': 'x'}], 'desktop_project_registry': next(regs)}
+        if dry_run:
+            return {'sessions': [{'title': 'x'}]}
+        registry = next(regs)
+        return {'sessions': [{'title': 'x', 'id': registry['thread_binding_required'][0]}],
+                'desktop_project_registry': registry}
     with patch.object(b.pr, 'restore', fake):
         plan, _ = quiet(lambda: b.batch_restore(d / 'zh-batch', 'codex', d / 'cx', d / 'cxh', dry_run=True))
         assert '共 2 次' in plan['user_notice'], plan
         done, _ = quiet(lambda: b.batch_restore(d / 'zh-batch', 'codex', d / 'cx', d / 'cxh'))
     assert [x['codex_project'] for x in done['projects']] == ['registered', 'pending'], done['projects']
     steps = done['user_next_steps']
-    assert steps['pending_trust'] == [done['projects'][1]['target']] and '还有 1 个' in steps['instructions'][0]
+    assert steps['pending_trust'] == [done['projects'][1]['target']]
+    assert done['sidebar_status'] == 'verification_required'
+    assert [x['sidebar']['thread_ids'] for x in done['projects']] == [['t1'], ['t2']]
+    assert [x['sidebar']['folder_open_pending'] for x in done['projects']] == [False, True]
+    receipt = json.loads((d / 'cx' / 'rehome-batch-restore.json').read_text(encoding='utf-8'))
+    assert receipt['projects'][0]['sidebar']['project_path'] == done['projects'][0]['target']
     assert 'move_thread_to_project' in done['agent_next']
 print('PASS: batch list (Claude/Codex), dry run, pack all with skip/collision names, restore all under one root, refusals')

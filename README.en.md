@@ -163,7 +163,7 @@ python scripts/batch_rehome.py restore "<batch-directory>" --to claude --root "<
 ```
 
 - Claude: restart the desktop app once, then trust the restore folder once by starting a session there; every project under it is covered (verified on Windows).
-- Codex: each project folder asks for trust once. The dry run's `user_notice` says how many prompts to expect; adding projects and grouping chats is done by the Agent. A folder-open slower than 60 seconds is reported as `pending` and is re-checked, not resent.
+- Codex: the receiving agent adds projects, groups the imported chats, and verifies their sidebar placement and working directories. Approve any folder trust prompt that appears. If registration times out, the agent continues from the saved receipt without importing the chats again. See [Codex project binding and verification](docs/CODEX_PROJECT_BINDING.md).
 - Conversations whose project folder was deleted are skipped and listed.
 
 ### Your own Skills
