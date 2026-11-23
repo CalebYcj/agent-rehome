@@ -1,9 +1,13 @@
 ---
 name: agent-rehome
-description: 换 AI 不用从头再来。把 Codex 和 Claude Code 里的聊天记录、项目和你的使用习惯搬到另一个 AI 接着用，Codex 到 Claude、Claude 到 Codex 都行，换电脑也行。在新的 AI 里说一句"把 Codex 的项目全搬过来"就开始，旧的 AI 不用打开。Use when the user wants to move Claude Code or Codex conversations, projects or global rules to another agent or another computer.
+description: 换 AI 不用从头再来。迁移 Codex、Claude Code、WorkBuddy、DeepSeek Harness（DSH）与 Antigravity Desktop 的聊天和项目，或把 Codex、Claude Code 的全局规则搬到新电脑。Use when the user wants to move supported agent conversations, projects, or global rules between agents or computers.
 ---
 
 # Agent Rehome
+
+## 首要验收：目标产品左侧栏
+
+在目标应用确认原生会话出现在左侧栏。整项目恢复时，项目和全部迁入会话必须在左侧栏正确归组。点开旧会话核对历史，在同一会话续聊并检查工作目录。项目文件、附件、原生登记、界面和续聊分别记录结果。只验证了文件读回或登记时，报告对应阶段，整体迁移仍待验收。
 
 ## 这是什么
 
@@ -29,7 +33,7 @@ description: 换 AI 不用从头再来。把 Codex 和 Claude Code 里的聊天�
 ## 先判断路线
 
 1. 确认用户指定的来源/目标 Agent、单会话或整项目、同机或跨机；不能拿最近会话代替指定来源。
-2. **默认走接收端单端路线。** 打包只读来源 Agent 在本机的数据文件，不需要调用来源 Agent，也不需要它在运行、已登录或还有额度。所以由用户正在使用的接收端 Agent 一个人完成全部：用 `batch_rehome.py move` 直接从来源数据目录打包，再恢复到自己这边，不用请用户去旧 Agent 里操作。来源数据在另一台电脑时，请用户把旧数据目录（`~/.codex` 或 `~/.claude`）和项目文件夹复制过来，再用 `--source-home` 指向它。只有来源数据不在本机、用户也无法复制时，才改成"来源端打包、接收端接收"的两段式。无论哪种，恢复、写入、登记、归组、验收都由接收端 Agent 自己做。--source-home/--target-home 都是数据根。
+2. **默认走接收端单端路线。** 打包只读来源 Agent 在本机的数据文件，不需要调用来源 Agent，也不需要它在运行、已登录或还有额度。Codex 和 Claude Code 批量迁移用 `batch_rehome.py move`，其余来源按各自项目路线打包和恢复。来源数据在另一台电脑时，可复制来源数据目录和项目文件夹过来，再用 `--source-home` 指向数据根。来源端先打包时，接收端仍负责恢复、原生登记、归组和验收。`--source-home` 和 `--target-home` 都指数据根。
 3. 打包完成后，醒目告诉用户包在哪、下一步做什么，再给一句可复制的话；打包结果的 `user_next_steps` 已写好这些内容，单会话和整项目都有。本 Skill 不联网传包：跨机时用户把整个包复制过去（U 盘、移动硬盘或局域网共享），不要传到公开位置。另一台电脑也要先装好本 Skill 和 Python。
 4. Claude 同类走原样平移；Codex 同类按 ReHome 原则原生平移；跨 Agent 走有损转换。平台有限结论见 [验收记录](docs/VALIDATION.md)。
 
@@ -61,6 +65,34 @@ python scripts/project_rehome.py restore "<exchange-project-package>" --to claud
 
 转换可生成预算摘要；完整归档不等于模型加载全部历史。losses_summary、.rehome/losses/ 和 .rehome/exchange/ 保留降级证据。
 
+### WorkBuddy 项目交换
+
+Claude Code ↔ WorkBuddy 可直接转换，迁移步骤只用 Python 和两端的本地文件。WorkBuddy 来源用 `pack --from workbuddy`，Claude 目标用 `restore --to claude`。Claude 来源用 `pack --from claude`，再走下方 WorkBuddy 接收步骤。同机时由接收方执行，跨机只传迁移包。直接双向的文件、历史和隔离登记已有证据，桌面原生验收按平台记录。
+
+Windows 和 macOS 的 WorkBuddy 样本均可用 `project_rehome.py pack --from workbuddy` 导出工作区、聊天、工具记录及附件。项目外的普通附件用 `--attachment-root` 指定可读取目录。Claude Code 和 Codex 接收沿用整项目的 `restore` 流程。
+
+运行 `python scripts/workbuddy_receive.py <包目录> --cwd <新工作区>` 准备项目文件、便携历史和附件。Windows WorkBuddy 接收 Codex 原生迁移时，再运行 `python scripts/workbuddy_native.py <已准备工作区> --template-space <目标账号现有本地分组ID>`。使用当前已登录账号匹配的明确分组，先备份，再为本次恢复创建独立新分组。主窗口重开后验左栏、旧历史、附件和续聊。命令返回登记阶段及未投影项，未经实机确认不报完成。
+
+Mac WorkBuddy 5.11.3 在 macOS 14.8.9 Intel 上已有合成项目原生接收证据；第二步显式加 `--experimental-macos`，先用对应该账号的本地合成分组和原生顶层聊天核实数据库、目录编码与归属。其他版本仍需各自复查。需要文件接手时，从 `.rehome/restore-workbuddy.json` 读取历史与附件索引。对已经转换过的会话，优先使用原交换包保留完整历史与附件结构。
+
+### DeepSeek Harness 项目交换
+
+使用 Python 3.14 自带的 Zstandard，或 Python 3.10+ 与可选的 `zstandard` 包。来源端以 `project_rehome.py pack --from dsh --project <工作区> --source-home <DSH 数据目录> --out <包目录>` 导出 V4 根会话、项目文件、图片和可解析的文件引用。目标 Codex、Claude Code 或 WorkBuddy 按各自接收步骤加载同一便携包。
+
+Intel Mac 或 DSH 无法启动时，先用 `dsh_native.py --probe --dsh-home <明确的数据目录>` 只读核对环境与登记格式，再按 [DSH 运行环境判断](docs/DSH_RUNTIME.md) 选择官方 Web、桌面或离线工作流。已有本地 V4 历史可离线导出。目标运行不了时可以先恢复到隔离目录，后续在可用目标端从便携包恢复并完成界面验收。
+
+DSH 接收用 `dsh_native.py <包目录> --cwd <新项目目录> --dsh-home <DSH 数据目录>` 写入新会话。目标 DSH 宿主退出后，用 `dsh_native.py --cwd <新项目目录> --dsh-home <DSH 数据目录> --register-offline <新的备份文件>` 登记项目并备份工作区记录。重开 DSH，从左栏检查标题、归组和历史，点开历史 PNG / TXT，再在原会话验证续聊与工作目录。迁移脚本可独立运行。Windows 合成实机样本覆盖 Codex → DSH 以及 WorkBuddy 5.11.3 ↔ DSH Desktop 0.2.2-rc.5。其他平台与 SSH 宿主需要各自验收。专属工具卡、分支、推理与 DSH 全局设置尚待适配。
+
+### 从 Antigravity Desktop 导出项目
+
+用 `project_rehome.py pack --from antigravity --project <来源项目> --out <新包目录>` 只读导出单根项目的主线聊天、项目文件和历史上传附件。默认读取 `~/.gemini/antigravity`，可用 `--source-home` 指定数据根。等待来源会话结束，再生成交换包。Codex、Claude Code、WorkBuddy 和 DSH 使用各自接收流程，继续核对目标左栏、项目归属、附件和原会话续聊。
+
+Windows Antigravity Desktop 2.33.1 的合成样本已核对正文、标题、PNG 和中文名 TXT。工具、内部推理及未知记录写入损失清单。Mac、CLI、IDE 和多根项目仍待验。
+
+Windows Antigravity Desktop 2.33.1 接收时，用 `antigravity_stage.py <交换包> --cwd <新工作区> --profile <新隔离数据根>` 准备项目和会话。用桌面原生入口登记这个空项目，核对原生项目 ID 后用 `antigravity_desktop.py --cwd <新工作区> --project-id <项目ID>` 预览。退出 Antigravity，待其语言服务结束，再加 `--apply` 写入。重开后在项目左栏打开每条会话，核对旧消息、PNG、TXT、同会话续聊和实际 cwd。Windows 两条合成会话已有完整桌面证据，其他版本和平台分别验收。原生日志从续聊才开始时，导出器从版本 1 的会话库补读旧轮次。
+
+Windows 退出接力已通过隔离进程验证。目标原生空项目已准备好时，可先运行 `antigravity_relay.py --cwd <新工作区> --project-id <项目ID> --launch`。启动器会预检，后台进程等应用和语言服务退出再备份与登记。查看工作区的 `.rehome/antigravity-relay.json`，状态为 `completed` 或 `already-registered` 后再重开应用验收。接力只负责离线登记，桌面关闭与重开仍按既有授权办理。
+
 ### 全部项目一次搬
 
 用户要搬"所有项目/全部对话"时，用 batch_rehome.py。先 `list` 盘点项目和对话，再 `move --dry-run` 预演。已有迁移授权时继续正式搬，无需重复确认。批量命令完成打包和恢复，包默认放在根目录旁的 `<root>-rehome-package`。缺失项目目录的记录会列出，单独核对可恢复的历史。两段式时由来源端 pack、接收端 restore 加 --root。恢复到 Claude 后，请用户亲手确认应用实际显示的目录信任提示。
@@ -78,6 +110,10 @@ python scripts/batch_rehome.py move --from codex --to claude --root "<new-parent
 python scripts/batch_rehome.py move --from codex --to claude --root "<new-parent-directory>" --source-home "<copied-old-.codex>"   # 旧数据从别的电脑复制来时
 ```
 
+## 已知故障的自动修复
+
+迁移命令报错、回执显示分步未完成，或目标端验收不符时，先按 [迁移故障恢复](docs/RECOVERY.md) 查证。信号、会话 ID、目标目录和版本都匹配时，在既有授权内执行对应修复，然后复查未通过的步骤。优先用原回执和已写入的会话继续。需要更换运行路线时保留已通过的结果，按实际完成的阶段报告。
+
 ## 安全与判断边界
 
 - 不复制账号凭据、登录状态、信任或权限白名单；目标权限用 default，不把历史授权变成当前授权，不执行历史任务。
@@ -88,7 +124,7 @@ python scripts/batch_rehome.py move --from codex --to claude --root "<new-parent
 - 跨 Agent 模型/版本从显式参数或目标配置/历史取得，不猜；Claude 原生版本沿用来源，自定义目标根需显式桌面登记目录。
 - 重启和目录信任由用户完成，Agent 不代点或自动关闭/重启；CLI 与桌面认证可能不同，不能复制凭据解决登录。
 - 未经对具体会话授权，不发送续聊验证；不伪造工具执行、退出码或验收证据，未知保持未知。
-- 未见过的格式、报错或拒绝时，停止依赖该操作的写入，报告原因、失败阶段和最小必要信息；保留证据，不自行改数据绕过去。
+- 证据不匹配恢复规则、格式未知或操作被拒绝时，停止依赖该操作的写入，保留证据，报告失败阶段和最小必要信息。
 - 回退前停止目标写入并保留新增内容；按备份清单恢复，SQLite 用在线备份，不盲目用旧共享数据库/索引覆盖其他聊天。
 - 部分失败保留 restore.json 和备份，不自动删目录或宣称整批回滚；不改运行中全局状态、循环改库/重导入或改历史来冒充成功。
 

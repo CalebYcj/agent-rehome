@@ -18,7 +18,7 @@ def child(test):
             if write and not inside(path): raise PermissionError('Test write outside temporary HOME')
             if isinstance(path, (str, bytes, os.PathLike)):
                 parts = {p.lower() for p in Path(os.fsdecode(path)).parts}
-                if parts & {'.codex', '.claude', 'claude-data'} and not inside(path):
+                if parts & {'.codex', '.claude', '.gemini', 'claude-data'} and not inside(path):
                     raise PermissionError('Test attempted to read real agent data')
         if event == 'sqlite3.connect' and args[0] != ':memory:' and not inside(args[0]):
             # SQLite URI paths are handled explicitly without allowing real HOME access.

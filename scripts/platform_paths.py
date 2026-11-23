@@ -50,7 +50,9 @@ def remap_text(text, old, new):
 
 
 def sqlite_read_uri(path):
-    return Path(path).resolve().as_uri()+'?mode=ro'
+    resolved=Path(path).resolve()
+    has_wal=Path(f'{resolved}-wal').exists() or Path(f'{resolved}-shm').exists()
+    return resolved.as_uri()+('?mode=ro' if has_wal else '?mode=ro&immutable=1')
 
 
 def source_rollout(home, stored):

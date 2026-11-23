@@ -316,7 +316,7 @@ def export(agent, session, home, full_tools=False):
 def validate(b):
     if b.get('schema')==exchange.SCHEMA:
         exchange.validate(b);return validate(exchange.to_v1(b))
-    if b.get('schema')!='agent-transcript/v1' or b['source']['agent'] not in ('claude','codex'): raise ValueError('不支持的对话包')
+    if b.get('schema')!='agent-transcript/v1' or b['source']['agent'] not in ('claude','codex','workbuddy','dsh','antigravity'): raise ValueError('不支持的对话包')
     uuid.UUID(b['source']['session_id'])
     if not b['turns']: raise ValueError('空对话包')
     for n,t in enumerate(b['turns']):

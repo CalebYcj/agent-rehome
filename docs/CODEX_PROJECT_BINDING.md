@@ -16,6 +16,8 @@ Claude → Codex 同机迁移由 Codex 直接读取 Claude 本地数据，不依
 
 **Codex：** 脚本独立写 rollout、索引、数据库与归档；依赖目标已有且兼容的 state_5.sqlite。Windows 项目恢复可尝试运行中桌面程序的 folder-open 入口创建项目，不自动重启。完整项目归属还需要 Codex APP 中的 Agent 调用 `list_projects`、`move_thread_to_project` 和 `list_threads`：按精确路径取真实项目 ID，先按会话 ID 原生打开，再逐条绑定本批次聊天，最后核对全部 ID。若首次移动提示任务不在侧边栏，按 ID 打开后重试一次。不要通过改写运行中全局状态冒充成功。
 
+Mac WorkBuddy → Mac Codex 样本通过本机 `codex app <恢复目录>` 打开并登记项目，再用上述原生工具核对路径和归组。这是该 Mac 端 CLI 与桌面组合的实测入口。迁移脚本的 Windows 自动登记行为不变；其他 Mac 版本按实际可用的原生入口处理。
+
 在 Claude、终端或其他没有 Codex 原生工具的环境，可用 restore 的 `--no-desktop` 只写文件和会话，之后由用户在 Codex APP 添加恢复文件夹、关联聊天，或由具备原生工具的 Agent 完成。报告“文件/会话已写入，项目侧边栏待验收”。自动入口不可用时同样明确报告降级状态，不能把工具缺失当成文件迁移失败。
 
 ## 项目归属、cwd和续聊前后的独立检查（原文）

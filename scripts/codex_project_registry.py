@@ -29,6 +29,14 @@ def desktop_running():return desktop_executable() is not None
 
 def live_home(home):return Path(home).resolve()==(Path.home()/'.codex').resolve()
 
+def open_windows_folder(executable,cwd):
+    startup=subprocess.STARTUPINFO()
+    startup.dwFlags|=subprocess.STARTF_USESHOWWINDOW
+    startup.wShowWindow=0
+    subprocess.Popen([executable,str(cwd)],startupinfo=startup,
+                     creationflags=subprocess.CREATE_NO_WINDOW,
+                     stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+
 def native_project(home,cwd,thread_ids,timeout=60):
     """Use the desktop's supported folder-open command line, not UI injection/state rewriting."""
     home=Path(home);state_path=home/'.codex-global-state.json'
@@ -51,8 +59,7 @@ def native_project(home,cwd,thread_ids,timeout=60):
         a=sqlite3.connect(sqlite_read_uri(db),uri=True);b=sqlite3.connect(backup/db.name)
         try:a.backup(b)
         finally:b.close();a.close()
-    startup=subprocess.STARTUPINFO();startup.dwFlags|=subprocess.STARTF_USESHOWWINDOW;startup.wShowWindow=0
-    child=subprocess.Popen([exe,str(cwd)],startupinfo=startup,creationflags=subprocess.CREATE_NO_WINDOW,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    open_windows_folder(exe,cwd)
     deadline=time.monotonic()+timeout
     while time.monotonic()<deadline:
         result=find()

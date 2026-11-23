@@ -4,6 +4,8 @@
 
 把 Codex、Claude Code 的对话和项目，搬到另一个 Agent 接着做。
 
+**完成标准**是旧会话出现在目标应用的左侧栏，整项目迁移时归入正确项目，点开能看旧消息并在同一条会话续聊。项目文件与附件也随迁。Codex 与 WorkBuddy 的双向桌面恢复已在 Windows 和 macOS 的合成项目样本中通过。各路线以[平台验收记录](docs/VALIDATION.md)为准。
+
 在 Codex 里做了几个月的项目，想换 Claude 接着做？不用从头再讲一遍。只要在新的 Agent 里装上这个 Skill，说一句“把 Codex 的项目全搬过来”，聊天记录、图片和项目文件就一起搬过去，新的 Agent 直接接着聊。旧的 Agent 不用打开，额度用完了也能搬，因为搬的是你电脑上的本地记录。
 
 - Codex → Claude、Claude → Codex 都能搬，同类之间也能搬
@@ -167,6 +169,19 @@ python scripts/agent_rehome.py transfer --from "codex:<session-id-or-rollout>" -
 
 ## 整项目与换电脑
 
+WorkBuddy 工作区可用 `project_rehome.py pack --from workbuddy --project <工作区> --out <交换包>` 打成便携包。项目外的普通附件需要通过 `--attachment-root <附件所在目录>` 显式指定。图片优先从 WorkBuddy 的本地附件存储读取。普通附件按当前可读文件打包，缺失或超出允许目录的附件会写入损失清单。
+
+**Claude Code ↔ WorkBuddy 可以直接迁移，无需安装 Codex。** WorkBuddy → Claude 用上述打包命令，再以 `project_rehome.py restore <交换包> --to claude --cwd <新项目>` 恢复。Claude → WorkBuddy 以 `project_rehome.py pack --from claude --project <Claude 项目> --out <交换包>` 打包，再走下面的两步接收。双向文件、历史及登记已通过隔离验证。Claude → Windows WorkBuddy 的左栏和原生续聊也已实测，反向仍待 Claude 桌面验收。
+
+交换包用 `project_rehome.py restore` 写入 Claude Code 或 Codex 格式，目标应用的原生加载仍需验收。Windows WorkBuddy 的原生接收分两步执行：
+
+```text
+python scripts/workbuddy_receive.py <便携交换包> --cwd <新的工作区>
+python scripts/workbuddy_native.py <已准备的工作区> --template-space <目标账号现有本地分组ID>
+```
+
+第二步在注册前备份数据库，创建独立分组和新会话。使用目标账号已确认的本地分组 ID 确定归属。两步完成后关闭并重开 WorkBuddy 主窗口，再验收左栏、历史、附件及续聊。当前已验证文本、历史 PNG 和普通 TXT 附件。工具卡等未投影项在结果中列出，原便携包仍保有对应历史。macOS 原生接收目前使用受控验收入口，第二步加 `--experimental-macos`，写入前先核对同账号的原生分组和顶层历史。只需文件接手时可从 `.rehome/restore-workbuddy.json` 查阅历史与附件。
+
 项目包包含当前文件、匹配该项目的多个聊天和可恢复附件。包目录必须是全新的、位于源项目外；恢复目录也必须全新，不能合并进已有工程。
 
 ```text
@@ -295,6 +310,38 @@ python scripts/project_rehome.py restore "<package-directory>" --to codex --cwd 
 这会独立恢复文件和会话；之后在 Codex APP 中添加恢复文件夹并关联聊天，或交给具备原生工具的 Agent。未完成分组时应报告“文件与历史已写入，侧边栏待验收”，不能报告完整恢复成功。
 
 Codex 项目要跨 Agent 转换，请用不带 `--native` 的 `pack` 生成交换包，再用 `restore --convert`。Codex 原生项目包没有可直接转换的中立事件。
+
+## DeepSeek Harness（DSH）
+
+Windows DSH Desktop 0.2.2-rc.5 的合成项目已实机验证左栏、原历史、PNG 原图、TXT 预览和同会话续聊。使用 Python 3.14 自带的 Zstandard，或 Python 3.10+ 加 `zstandard`。Intel Mac 或 DSH 无法启动时，见 [运行环境判断](docs/DSH_RUNTIME.md)。
+
+```text
+python scripts/project_rehome.py pack --from dsh --project <来源项目> --source-home <DSH 数据目录> --out <包目录>
+python scripts/dsh_native.py <包目录> --cwd <新项目> --dsh-home <DSH 数据目录>
+python scripts/dsh_native.py --cwd <新项目> --dsh-home <DSH 数据目录> --register-offline <新备份文件>
+```
+
+最后一步需要退出目标 DSH 宿主。登记备份成功后重开应用，在目标项目左栏验收。历史 PNG 使用原生图块，普通文件以工作区文件引用打开。V4 以外的历史、专属工具卡、分支、Mac 和 SSH 原生验收仍待覆盖。
+
+## Antigravity Desktop 来源
+
+```text
+python scripts/project_rehome.py pack --from antigravity --project "<来源项目>" --out "<新包目录>"
+```
+
+默认只读 `~/.gemini/antigravity`，可用 `--source-home` 指向已复制的数据根。复制来源数据时，项目路径须能与原生项目索引核对。支持包含已完成主线聊天的单根项目。可见的用户和助手消息、标题、项目文件及原历史上传一起进入标准交换包。缺失的上传文件、不可恢复的原文件名、工具、内部推理和其他未投影记录见包内损失清单。来源端已验证 Windows Antigravity Desktop 2.33.1。
+
+Codex 和 Claude Code 使用 `project_rehome.py restore`，WorkBuddy 使用 `workbuddy_receive.py` 后走对应原生登记，DSH 使用 `dsh_native.py`。各目标分别验收左栏、历史、附件和续聊。多根项目、Mac、CLI 和 IDE 仍待验。
+
+Windows Antigravity Desktop 2.33.1 的反向接收先准备工作区，再在目标应用登记该文件夹为空项目。用原生项目 ID 预览，退出 Antigravity 并等语言服务结束后执行 `--apply`。脚本备份共享索引和项目配置，只登记本批会话。重开后，从左栏逐条打开历史和附件并验证 cwd 与续聊。实机样本通过两条会话，历史 TXT 消息卡保留原名，查看器标题使用 Antigravity 的存储文件名。
+
+```text
+python scripts/antigravity_stage.py "<便携交换包>" --cwd "<新工作区>" --profile "<新隔离数据根>"
+python scripts/antigravity_desktop.py --cwd "<新工作区>" --project-id "<原生项目ID>"
+python scripts/antigravity_desktop.py --cwd "<新工作区>" --project-id "<原生项目ID>" --apply
+```
+
+如果导入后的原生日志从新续聊才开始，重打包时会从版本 1 的会话库读回旧轮次，再拼接已有原生日志。备份和还原回执不进入返程包。
 
 ## 保留与已知限制
 

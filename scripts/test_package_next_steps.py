@@ -25,8 +25,8 @@ with tempfile.TemporaryDirectory() as tmp:
     with contextlib.redirect_stdout(buffer):
         p.pack('claude', source, out, home, [{'snapshot': str(session), 'title': 't'}])
     final = json.loads(buffer.getvalue().strip().splitlines()[-1])
-    assert final['user_next_steps']['package_path'] == str(out)
-    assert str(out) in final['user_next_steps']['first_message']
+    assert final['user_next_steps']['package_path'] == str(out.resolve())
+    assert str(out.resolve()) in final['user_next_steps']['first_message']
     single = d / 'single.json'; buffer = io.StringIO(); argv = sys.argv
     sys.argv = ['agent_rehome.py', 'export', '--from', 'claude:' + str(session), '--source-home', str(home), '--out', str(single)]
     try:

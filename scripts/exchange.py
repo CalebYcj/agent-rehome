@@ -210,7 +210,7 @@ def covered(event,losses):
 
 def validate(bundle):
     if bundle.get('schema')!=SCHEMA or bundle.get('type')!='session': raise ValueError('Expected v2 session')
-    if bundle['source']['agent'] not in ('claude','codex'): raise ValueError('Agent adapter is not implemented')
+    if bundle['source']['agent'] not in ('claude','codex','workbuddy','dsh','antigravity'): raise ValueError('Agent adapter is not implemented')
     uuid.UUID(bundle['source']['session_id']);seen=set();calls={};results=set()
     branches={x['id'] for x in bundle['session']['branches']}
     if 'main' not in branches:raise ValueError('Missing main branch')

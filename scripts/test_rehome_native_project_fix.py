@@ -37,4 +37,26 @@ with tempfile.TemporaryDirectory() as td:
  try:p.pack('codex',project,d/'bad',d,[{'snapshot':str(src),'title':'bad'}])
  except ValueError:pass
  else:raise AssertionError('imported source accepted')
+
+# Continued imported Codex history (with live runtime events) is packable for return trips.
+with tempfile.TemporaryDirectory() as td2:
+ d2=Path(td2); proj2=d2/'proj'; proj2.mkdir(); (proj2/'a.txt').write_text('ok',encoding='utf-8')
+ sid2='22345678-1234-4567-8123-123456789012'; ts2='2026-11-24T00:00:00Z'
+ r2=[
+  {'type':'session_meta','payload':{'id':sid2,'cli_version':'claude-import','cwd':str(proj2)}},
+  {'timestamp':ts2,'type':'event_msg','payload':{'type':'item_completed','item':{'type':'UserMessage','content':[{'type':'text','text':'hi'}]},'turn_id':'t1'}},
+  {'timestamp':ts2,'type':'response_item','payload':{'type':'message','role':'assistant','content':[{'type':'output_text','text':'hello'}]}},
+  {'timestamp':ts2,'type':'event_msg','payload':{'type':'token_count','info':{}}},
+ ]
+ rp=d2/'rollout.jsonl'; rp.write_text(''.join(json.dumps(x)+'\n' for x in r2),encoding='utf-8')
+ import sqlite3
+ dbp=d2/'state_5.sqlite'; c=sqlite3.connect(str(dbp))
+ c.execute('create table projects(id text,name text)'); c.execute('create table project_roots(project_id text,position integer,path text)')
+ c.execute('create table threads(id text,rollout_path text,cwd text,project_id text)')
+ c.execute('insert into projects values(?,?)',('p1','proj'))
+ c.execute('insert into project_roots values(?,?,?)',('p1',0,str(proj2)))
+ c.execute('insert into threads values(?,?,?,?)',(sid2,str(rp),'/other/new-chat','p1'))
+ c.commit(); c.close()
+ pkg2=d2/'pkg2'; p.pack('codex',proj2,pkg2,d2)
+ assert len(p.load_manifest(pkg2)['conversations'])==1
 print('PASS: explicit native sources, cache exclusion, UI-only turns, full tool data, file attachment, native cards, one suffix, imported-source rejection')

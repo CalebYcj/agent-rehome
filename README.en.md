@@ -4,6 +4,8 @@ Version **0.5.2** · [中文](README.md) · [MIT](LICENSE)
 
 Move your Codex and Claude Code conversations and projects to another agent, and keep going.
 
+**A migration is complete** when the original chats appear in the target app's sidebar, are grouped under the correct project for a project move, and can be opened and continued in place. Project files and attachments travel with them. Synthetic desktop tests passed in both directions between Codex and WorkBuddy on Windows and macOS. See the [platform validation record](docs/VALIDATION.md) for results by route.
+
 Spent months on a project in Codex and want to continue in Claude? No need to explain it all again. Install this Skill in the new agent and say "move my Codex projects over". Chat history, images and project files move together, and the new agent picks up where you left off. The old agent does not need to be open, or even have quota left: what moves is the local history on your computer.
 
 - Codex → Claude, Claude → Codex, and same-agent moves
@@ -127,6 +129,19 @@ Model/version settings are read from the target configuration/history. If unavai
 
 ## Projects and another computer
 
+Export a WorkBuddy workspace with `project_rehome.py pack --from workbuddy --project <workspace> --out <package>`. Use `--attachment-root <directory>` for ordinary files attached from outside the workspace. WorkBuddy image blobs and readable attachment copies travel with the project. Missing or out-of-scope files are recorded in the loss report.
+
+**Claude Code and WorkBuddy can exchange projects directly without Codex installed.** To receive in Claude, use `project_rehome.py restore <package> --to claude --cwd <new-project>`. To receive in WorkBuddy, export with `project_rehome.py pack --from claude --project <claude-project> --out <package>`, then follow the two steps below. Files, history, and registration were tested in isolation in both directions. The Windows WorkBuddy desktop test passed for sidebar visibility and continuation from Claude history. The Claude desktop test in the reverse direction is pending.
+
+Use `project_rehome.py restore` to write Claude Code or Codex history files. To receive native chats in Windows WorkBuddy, run:
+
+```text
+python scripts/workbuddy_receive.py <portable-package> --cwd <new-workspace>
+python scripts/workbuddy_native.py <prepared-workspace> --template-space <target-account-local-space-id>
+```
+
+The second step backs up the database and uses an existing local space ID to select the destination account. It creates a separate space and new chats. Close and reopen the WorkBuddy main window, then verify the sidebar, history, attachments, and continuation. Text, historical PNGs, and TXT attachments were validated. Tool cards and other omitted items are listed in the result and preserved in the portable package. On macOS, native import is available for controlled tests with `--experimental-macos` on the second step. Check the destination account's native space and top-level history before writing. File-only restores keep the history and attachment index in `.rehome/restore-workbuddy.json`.
+
 ```text
 python scripts/project_rehome.py pack --from codex --project "<source-project>" --out "<new-package-directory>"
 python scripts/project_rehome.py restore "<package-directory>" --to claude --cwd "<new-project>"
@@ -163,7 +178,7 @@ python scripts/batch_rehome.py restore "<batch-directory>" --to claude --root "<
 ```
 
 - Claude: restart the desktop app once, then trust the restore folder once by starting a session there; every project under it is covered (verified on Windows).
-- Codex: the receiving agent adds projects, groups the imported chats, and verifies their sidebar placement and working directories. Approve any folder trust prompt that appears. If registration times out, the agent continues from the saved receipt without importing the chats again. See [Codex project binding and verification](docs/CODEX_PROJECT_BINDING.md).
+- Codex: each project folder asks for trust once. The dry run's `user_notice` says how many prompts to expect; adding projects and grouping chats is done by the Agent. A folder-open slower than 60 seconds is reported as `pending` and is re-checked, not resent.
 - Conversations whose project folder was deleted are skipped and listed.
 
 ### Your own Skills
@@ -231,6 +246,38 @@ For cross-agent conversion of a Codex project, use `pack` without `--native` to 
 - Credentials and Git history are not migrated. Sources are not moved/deleted; unknown conflicts are refused. Failed batches are not automatically rolled back.
 
 Backups and manifests live under the target data root in rehome-backups/ and rehome-imports/; project results are in .rehome/restore.json. For rollback, stop target writes, preserve new content, and restore only the affected files from the manifest. Do not replace a shared database/index blindly with an old copy containing other chats.
+
+## DeepSeek Harness (DSH)
+
+The Windows DSH Desktop 0.2.2-rc.5 sample passed native sidebar grouping, history loading, PNG and TXT previews, and same-chat continuation. Use Python 3.14's Zstandard module or Python 3.10+ with `zstandard`. For Intel Macs and hosts that cannot launch DSH, see the [runtime decision guide](docs/DSH_RUNTIME.md).
+
+```text
+python scripts/project_rehome.py pack --from dsh --project <source> --source-home <DSH-data> --out <package>
+python scripts/dsh_native.py <package> --cwd <new-project> --dsh-home <DSH-data>
+python scripts/dsh_native.py --cwd <new-project> --dsh-home <DSH-data> --register-offline <new-backup-file>
+```
+
+Close the target DSH host before offline registration, then reopen it to verify the project in the sidebar. PNGs use native image blocks. Text files open through workspace file links. The adapter supports v4 root chats. Tool cards, branches, and native acceptance on macOS or an SSH host remain open.
+
+## Exporting an Antigravity Desktop project
+
+```text
+python scripts/project_rehome.py pack --from antigravity --project "<source-project>" --out "<new-package>"
+```
+
+This reads `~/.gemini/antigravity` by default. Pass `--source-home` to use a copied data root, and select a project path that matches the source project index. The package includes project files, saved main-thread user and assistant messages, titles, and historical uploads for a single-folder project. Missing uploads, unavailable original file names, tool steps, internal reasoning, and other unprojected records are listed as losses. Source export was checked on Windows Antigravity Desktop 2.33.1.
+
+Use the existing restore path for Codex, Claude Code, WorkBuddy, or DSH. Verify the target sidebar, history, attachments, and continuation in each app. Multi-folder projects, macOS, the CLI, and the IDE remain open.
+
+For Windows Antigravity Desktop 2.33.1, stage the package, then add the restored folder as a new empty project in Antigravity. Preview registration with its native project ID, quit Antigravity, wait for its language server to stop, and apply. The script backs up the affected index and project settings. Reopen the app and verify sidebar grouping, old turns, attachments, continuation, and the working directory. A two-conversation Windows desktop sample passed these checks. The TXT card retains its original name while the viewer title uses Antigravity's stored filename.
+
+```text
+python scripts/antigravity_stage.py "<portable-package>" --cwd "<new-workspace>" --profile "<new-isolated-data-root>"
+python scripts/antigravity_desktop.py --cwd "<new-workspace>" --project-id "<native-project-id>"
+python scripts/antigravity_desktop.py --cwd "<new-workspace>" --project-id "<native-project-id>" --apply
+```
+
+When Antigravity starts the transcript log at the first resumed turn, a return export takes the earlier turns from the version-1 native session database and appends the recorded continuation. Registration backups and receipts stay out of the return package.
 
 ## Tests and privacy checks
 

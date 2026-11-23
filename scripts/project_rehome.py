@@ -9,8 +9,9 @@ from collections import Counter
 from urllib.parse import urlsplit
 from cli_output import print,configure
 from user_next_steps import NEXT_STEPS,add_next_steps,package_next_steps
-SKIP_DIRS={'.git','node_modules','.venv','venv','__pycache__','.next','target','dist','AppData','.codex','.claude','.ssh','.cache','__MACOSX','.AppleDouble'}
-SKIP_FILES={'.env','.npmrc','.pypirc','credentials.json','.credentials.json','auth.json','token.json','tokens.json','settings.local.json','.DS_Store'}
+SKIP_DIRS={'.git','node_modules','.venv','venv','__pycache__','.next','target','dist','AppData','.codex','.claude','.dsh','.ssh','.cache','__MACOSX','.AppleDouble'}
+ANTIGRAVITY_SKIP_DIRS={'.agent','.antigravity','.antigravity-cli','.antigravity-ide','.gemini'}
+SKIP_FILES={'.env','.npmrc','.pypirc','credentials.json','.credentials.json','.credentials.yaml','auth.json','token.json','tokens.json','settings.local.json','.DS_Store'}
 LOCAL_ARTIFACT_SUFFIXES={'.exe','.dll','.pdb','.dmg','.zip','.gz','.zst','.rehome','.sqlite','.sqlite3','.db','.wal','.shm','.bin'}
 PROFILE_DIRS={'appdata','webview','ebwebview','user data','oneauth','browser','browser-profile'}
 INLINE_IMAGE_LIMIT=16*1024**2
@@ -30,8 +31,22 @@ def safe(root,rel):
     if not p.is_relative_to(root.resolve()): raise ValueError('Path escapes package')
     return p
 
-def files(root,include_git=False,excluded_dirs=None):
-    ignored={s.lower() for s in SKIP_DIRS}|PROFILE_DIRS
+MIGRATION_REHOME_DIRS={'exchange','workbuddy-files','losses','history'}
+
+def is_migration_metadata(rel):
+    parts=PurePosixPath(rel).parts
+    if not parts or parts[0]!='.rehome': return False
+    if len(parts)==2:
+        name=parts[1]
+        return (
+            name=='restore.json'
+            or (name.startswith('restore-') and name.endswith('.json'))
+            or name.startswith('antigravity-')
+        )
+    return parts[1] in MIGRATION_REHOME_DIRS
+
+def files(root,include_git=False,excluded_dirs=None,extra_skips=()):
+    ignored={s.lower() for s in SKIP_DIRS}|PROFILE_DIRS|set(extra_skips)
     if include_git:ignored.remove('.git')
     for base,dirs,names in os.walk(root,followlinks=False):
         allowed=[]
@@ -51,7 +66,7 @@ def files(root,include_git=False,excluded_dirs=None):
             if p.suffix.lower() in ('.key','.pem','.p12','.pfx'): continue
             if p.relative_to(root).parts[:3]==('.rehome','surroundings','originals') and project_surroundings.excluded(p.relative_to(root)):continue
             if '.codex-local' in p.relative_to(root).parts and p.suffix.lower() in LOCAL_ARTIFACT_SUFFIXES: continue
-            if p.relative_to(root).as_posix() in ('.rehome/restore.json',NEXT_STEPS): continue
+            if p.relative_to(root).as_posix()==NEXT_STEPS or is_migration_metadata(p.relative_to(root).as_posix()): continue
             yield p
 
 def directory_bytes(root):
@@ -140,7 +155,11 @@ def native_title(snap, module, home):
     return restore_title('',sid,turns[0]['user']['text'] if turns else '')
 
 
-def pack(agent,project,out,home,selected_sessions=None,native=False,include_memory=False,include_checkpoints=False,source_desktop_registry=None,format_version=2,dry_run=False,allow_large=False,allow_secrets_in_config=False,files_mode='copy',include_git=False):
+def pack(agent,project,out,home,selected_sessions=None,native=False,include_memory=False,include_checkpoints=False,source_desktop_registry=None,format_version=2,dry_run=False,allow_large=False,allow_secrets_in_config=False,files_mode='copy',include_git=False,attachment_roots=()):
+    if agent in ('workbuddy','dsh','antigravity') and (native or include_memory or include_checkpoints):
+        raise ValueError(f'{agent} export supports portable project history only')
+    if agent=='antigravity' and format_version!=2:
+        raise ValueError('Antigravity project export requires agent-exchange/v2')
     if native and format_version!=2:raise ValueError('Native project payload requires v2')
     original_project=Path(os.path.abspath(project))
     project=project.resolve(); out=out.resolve()
@@ -149,7 +168,11 @@ def pack(agent,project,out,home,selected_sessions=None,native=False,include_memo
     if not project.is_dir():raise ValueError('Source project directory does not exist')
     if files_mode not in ('copy','reference'):raise ValueError('Invalid project file mode')
     excluded_dirs={}
-    project_files,agent_skips=project_surroundings.inventory(project,agent,files(project,include_git,excluded_dirs));preview=file_preview(project,project_files,excluded_dirs)
+    extra_skips=ANTIGRAVITY_SKIP_DIRS if agent=='antigravity' else set()
+    paths=files(project,include_git,excluded_dirs,extra_skips)
+    if agent in ('dsh','antigravity'):
+        paths=(p for p in paths if p.relative_to(project).parts[0]!='.rehome')
+    project_files,agent_skips=project_surroundings.inventory(project,agent,paths);preview=file_preview(project,project_files,excluded_dirs)
     print(json.dumps({'stage':'project-file-preview',**preview},ensure_ascii=False),flush=True)
     if include_git:git_preflight(project,project_files)
     config_secrets=project_surroundings.secret_preflight(project,project_files,allow_secrets_in_config)
@@ -171,8 +194,53 @@ def pack(agent,project,out,home,selected_sessions=None,native=False,include_memo
         if os.name!='nt': entry['permissions']=p.stat().st_mode & 0o777
         entries.append(entry)
         copy_sources.append((p,entry))
-    if selected_sessions is not None:
+    def local_asset(item):
+        original=item.get('path')
+        if not isinstance(original,str) or not original:
+            return None,'missing_file'
+        candidate=Path(original)
+        if not candidate.is_absolute():
+            candidate=(Path(home) if item['image'] else project)/candidate
+        resolved=candidate.resolve()
+        roots=[project,*[Path(root).resolve() for root in attachment_roots]]
+        if agent=='antigravity':
+            upload_dir=resolved.parent
+            if upload_dir.name=='.user_uploaded' and upload_dir.parent.parent==(Path(home)/'brain').resolve():
+                roots.append(upload_dir)
+        elif item['image']:
+            roots.append((Path(home)/('attachments/v1/objects' if agent=='dsh' else 'blobs')).resolve())
+        if not any(resolved.is_relative_to(root) for root in roots):
+            return None,'sensitive'
+        if not resolved.is_file():
+            return None,'missing_file'
+        display_name=item.get('name') or candidate.name
+        blocked={name.casefold() for name in SKIP_FILES}
+        if (candidate.name.casefold() in blocked
+                or (agent=='antigravity' and (display_name.casefold() in blocked or project_surroundings.excluded(Path(display_name))))
+                or project_surroundings.excluded(resolved) or linked(candidate)):
+            return None,'sensitive'
+        if item.get('expected') and measure(chunks(resolved))!=item['expected']:
+            raise ValueError('DSH attachment checksum or size changed')
+        asset=add_asset(lambda:chunks(resolved),display_name,original,item.get('mode','current-file'))
+        return dict(asset,image=item['image'],mime=item.get('mime')),None
+    if agent=='antigravity':
+        import antigravity_source
+        antigravity_sessions=antigravity_source.project_sessions(home,source_roots)
+        sessions=list(antigravity_sessions) if selected_sessions is None else [Path(x['snapshot']).absolute() for x in selected_sessions]
+        if any(session not in antigravity_sessions for session in sessions):
+            raise ValueError('Antigravity selection must contain transcript paths registered in this project')
+    elif selected_sessions is not None:
         sessions=[Path(x['snapshot']) for x in selected_sessions]
+    elif agent=='workbuddy':
+        import workbuddy_source
+        sessions=workbuddy_source.project_sessions(Path(home),project,r.read)
+        if not sessions:
+            raise ValueError('No WorkBuddy chats under this workspace')
+    elif agent=='dsh':
+        import dsh_source
+        sessions=dsh_source.project_sessions(home,project)
+        if not sessions:
+            raise ValueError('No DSH v4 chats under this workspace')
     elif agent=='claude':
         roots=source_roots if native else [str(project)]
         sessions=sorted({session for root in roots for session in (home/'projects'/re.sub(r'[^a-zA-Z0-9_-]','-',root)).glob('*.jsonl')})
@@ -181,17 +249,66 @@ def pack(agent,project,out,home,selected_sessions=None,native=False,include_memo
     else:
         sessions=[]
         with r.closing(sqlite3.connect(sqlite_read_uri(home/"state_5.sqlite"),uri=True)) as db:
-            for path,cwd in db.execute('select rollout_path,cwd from threads'):
-                if path_key(cwd) in {path_key(root) for root in source_roots}: sessions.append(source_rollout(home,path))
+            root_keys={path_key(root) for root in source_roots}
+            cols={row[1] for row in db.execute('pragma table_info(threads)')}
+            has_roots=bool(db.execute("select 1 from sqlite_master where type='table' and name='project_roots'").fetchone())
+            project_ids=set()
+            if has_roots and 'project_id' in cols:
+                for pid,rpath in db.execute('select project_id,path from project_roots'):
+                    if path_key(rpath) in root_keys: project_ids.add(pid)
+            sql='select rollout_path,cwd,project_id from threads' if 'project_id' in cols else 'select rollout_path,cwd,null from threads'
+            for path,cwd,pid in db.execute(sql):
+                if path_key(cwd) in root_keys or (pid and pid in project_ids): sessions.append(source_rollout(home,path))
+    restored_attachments={}
+    if agent=='claude' and not native:
+        try:
+            receipt=safe(project,'.rehome/restore.json')
+            state=json.loads(receipt.read_text(encoding='utf-8')) if receipt.is_file() else {}
+        except (ValueError,OSError):
+            state={}
+        if isinstance(state,dict) and state.get('to')=='claude' and path_key(state.get('target') or '')==path_key(str(project)):
+            if isinstance(state.get('files'),list):
+                restored_attachments={entry['path']:entry['sha256'] for entry in state.get('files',[])
+                                      if isinstance(entry,dict) and isinstance(entry.get('path'),str)
+                                      and isinstance(entry.get('sha256'),str) and entry['path'].startswith('.rehome/attachments/')}
     bundles=[];native_refs={};native_payloads=[];empty_titles=0
     for index,src in enumerate(sessions):
         requested=selected_sessions[index].get('title') if selected_sessions is not None else None
         if selected_sessions is not None and (not isinstance(requested,str) or not requested.strip()):
             empty_titles+=1
+        if agent=='antigravity':
+            bundle=antigravity_source.export(src,antigravity_sessions[src],project,home,local_asset)
+            if isinstance(requested,str) and requested.strip():bundle['title']=requested
+            bundles.append(bundle)
+            continue
+        if agent=='dsh':
+            import dsh_source
+            try: bundle=dsh_source.export(src,project,home,local_asset)
+            except ValueError as error:
+                if str(error)!='DSH session has no visible user history':raise
+                skipped.append({'session':src.parent.name,'reason':str(error)})
+            else:
+                if isinstance(requested,str) and requested.strip():bundle['title']=requested
+                bundles.append(bundle)
+            continue
         rows=r.read(src)
+        if agent=='workbuddy':
+            import workbuddy_source
+            bundle=workbuddy_source.export(src,rows,project,local_asset)
+            if isinstance(requested,str) and requested.strip():
+                bundle['title']=requested
+            bundles.append(bundle)
+            continue
         if agent=='codex':
             meta=next((x['payload'] for x in rows if x.get('type')=='session_meta'),{})
-            if meta.get('cli_version') in ('claude-import','claude-to-codex-proof'): raise ValueError('Refusing imported Claude history as native Codex source')
+            has_live_continuation=any(
+                x.get('type') in ('world_state','token_usage_record')
+                or (x.get('type')=='event_msg' and isinstance(x.get('payload'),dict)
+                    and x['payload'].get('type') in ('thread_settings_applied','token_count'))
+                for x in rows
+            )
+            if meta.get('cli_version') in ('claude-import','claude-to-codex-proof') and not has_live_continuation:
+                raise ValueError('Refusing imported Claude history as native Codex source')
         native_module=claude_native if agent=='claude' else codex_relocate
         snap=native_module.snapshot(src,home,include_memory and index==0,include_checkpoints,source_desktop_registry) if native else None
         if snap:
@@ -230,11 +347,12 @@ def pack(agent,project,out,home,selected_sessions=None,native=False,include_memo
                 return
             attach(dict(add_asset(lambda:chunks(path),path.name,original,'current-file'),**metadata))
         if agent=='claude':
-            for row in rows:
+            byline={(turn['user'].get('_raw_ref') or {}).get('line'):turn for turn in b['turns']}
+            for row,ref in zip(rows,exchange.raw_refs(src,rows)):
                 if row.get('isSidechain') or row.get('isMeta'): continue
-                ts=row.get('timestamp'); c=row.get('message',{}).get('content')
-                if row.get('type')=='user' and ts in byts:
-                    current=byts[ts]
+                c=row.get('message',{}).get('content')
+                if row.get('type')=='user' and ref['line'] in byline:
+                    current=byline[ref['line']]
                     for a in pending: attach(a)
                     pending=[]
                     if isinstance(c,list):
@@ -244,6 +362,25 @@ def pack(agent,project,out,home,selected_sessions=None,native=False,include_memo
                                 if source.get('type')=='base64':
                                     a=add_asset(lambda data=source['data']:decoded_chunks(data),'image'+(mimetypes.guess_extension(mt) or '.png'),'', 'embedded-image'); attach(dict(a,mime=mt,image=True))
                                 else: skipped.append({'session':src.name,'attachment':'remote image','reason':'not downloaded'})
+                    if restored_attachments:
+                        references=current['user']['text'].partition('\n\n迁移附件（历史数据）：\n')[2]
+                        for name, original in re.findall(r'^\[([^\n]+)\]\(([^\n]+)\)$',references,re.M):
+                            candidate=Path(original)
+                            if not candidate.is_absolute() or not candidate.is_relative_to(project):
+                                continue
+                            relative=candidate.relative_to(project).as_posix()
+                            expected=restored_attachments.get(relative)
+                            if not expected or candidate.name.lower() in SKIP_FILES or project_surroundings.excluded(candidate.relative_to(project)):
+                                continue
+                            path=safe(project,relative)
+                            if not path.is_file() or r.digest(path)!=expected:
+                                skipped.append({'session':src.name,'attachment':name,'reason':'restored attachment missing or changed'})
+                                continue
+                            if any(a['sha256']==expected for a in current['user'].get('attachments',[])):
+                                continue
+                            mime=mimetypes.guess_type(path)[0]
+                            attach(dict(add_asset(lambda source=path:chunks(source),name,original,'restored-file'),
+                                        image=bool(mime and mime.startswith('image/')),mime=mime))
                 if row.get('type')=='attachment' and row.get('attachment',{}).get('type')=='file':
                     a=row['attachment']; original=a.get('filename',''); f=a.get('content',{}).get('file',{})
                     if isinstance(f.get('content'),str):
@@ -292,7 +429,9 @@ def pack(agent,project,out,home,selected_sessions=None,native=False,include_memo
                             else: skipped.append({'session':src.name,'attachment':original,'reason':'file unavailable'})
         if pending: skipped.append({'session':src.name,'reason':'attachment has no visible user turn','count':len(pending)})
         bundles.append(b)
-    exclusions=(SKIP_DIRS-{'.git'} if include_git else SKIP_DIRS)|SKIP_FILES
+    if agent in ('dsh','antigravity') and not bundles:
+        raise ValueError(f'No visible {agent} chats to export')
+    exclusions=(SKIP_DIRS-{'.git'} if include_git else SKIP_DIRS)|SKIP_FILES|extra_skips
     manifest={'schema':'agent-project/v1','source_agent':agent,'source_project':str(project),'created_at':r.now(),'files':entries,'attachments':assets,'conversations':bundles,'skipped':skipped,'exclusions':sorted(exclusions),'note':'Base exclusions have explicit project-agent allowlist exceptions. Known credential filenames excluded; config secret overrides are recorded, not sanitized. No user-level agent installation; historical text attachments may be partial excerpts.'}
     skill_dirs=[]
     for prefix in ('.claude/skills','.agents/skills'):
@@ -313,7 +452,7 @@ def pack(agent,project,out,home,selected_sessions=None,native=False,include_memo
         write_checked(target,chunks(source),(entry['sha256'],entry['bytes']))
         shutil.copystat(source,target)
     for item in assets:
-        target=safe(out,item['path']);target.parent.mkdir(exist_ok=True)
+        target=safe(out,item['path']);target.parent.mkdir(parents=True,exist_ok=True)
         write_checked(target,asset_sources[item['path']](),(item['sha256'],item['bytes']))
     for module,source,descriptor,relative,with_memory in native_payloads:
         snap=module.snapshot(source,home,with_memory,include_checkpoints,source_desktop_registry)
@@ -361,7 +500,10 @@ def compare_references(dest,source_agent,inventory):
         if key in expected or type(item['bytes']) is not int or item['bytes']<0 or not re.fullmatch('[0-9a-f]{64}',item['sha256']):
             raise ValueError('Invalid project file reference: '+relative)
         expected[key]=item
-    actual,_=project_surroundings.inventory(dest,source_agent,files(dest,inventory.get('include_git',False)))
+    extra_skips=ANTIGRAVITY_SKIP_DIRS if source_agent=='antigravity' else ()
+    paths=files(dest,inventory.get('include_git',False),extra_skips=extra_skips)
+    if source_agent=='antigravity':paths=(p for p in paths if p.relative_to(dest).parts[0]!='.rehome')
+    actual,_=project_surroundings.inventory(dest,source_agent,paths)
     present={os.path.normcase(path.relative_to(dest).as_posix()):path for path in actual}
     missing=[];different=[]
     for key,item in expected.items():
@@ -615,12 +757,13 @@ def restore(package,dest,to,home=None,no_desktop=False,title_suffix=' · 迁移�
 def main():
     configure()
     ap=argparse.ArgumentParser(description=__doc__); sub=ap.add_subparsers(dest='mode',required=True)
-    p=sub.add_parser('pack'); p.add_argument('--from',dest='agent',choices=['claude','codex'],required=True);p.add_argument('--project',type=Path,required=True);p.add_argument('--out',type=Path,required=True);p.add_argument('--source-home',type=Path);p.add_argument('--sessions-json',type=Path,help='Explicit native project inventory with snapshot paths and titles')
+    p=sub.add_parser('pack'); p.add_argument('--from',dest='agent',choices=['claude','codex','workbuddy','dsh','antigravity'],required=True);p.add_argument('--project',type=Path,required=True);p.add_argument('--out',type=Path,required=True);p.add_argument('--source-home',type=Path);p.add_argument('--sessions-json',type=Path,help='Explicit project inventory with snapshot paths and titles')
     p.add_argument('--native',action='store_true');p.add_argument('--include-memory',action='store_true');p.add_argument('--include-checkpoints',action='store_true');p.add_argument('--source-desktop-registry')
     p.add_argument('--dry-run',action='store_true');p.add_argument('--allow-large',action='store_true',help='Deprecated compatibility flag')
     p.add_argument('--files',dest='files_mode',choices=['copy','reference'],default='copy')
     p.add_argument('--include-git',action='store_true')
     p.add_argument('--allow-secrets-in-config',action='store_true')
+    p.add_argument('--attachment-root',type=Path,action='append',default=[],help='Additional WorkBuddy or DSH attachment directory')
     p=sub.add_parser('restore');p.add_argument('package',type=Path);p.add_argument('--cwd',type=Path,required=True);p.add_argument('--to',choices=['claude','codex'],required=True);p.add_argument('--target-home',type=Path);p.add_argument('--no-desktop',action='store_true')
     p.add_argument('--native',action='store_true',help='Require the same-agent native route; otherwise inferred from package and target')
     p.add_argument('--model');p.add_argument('--claude-model');p.add_argument('--claude-version');p.add_argument('--desktop-registry')
@@ -630,7 +773,10 @@ def main():
     p.add_argument('--claude-context-budget',type=int,default=r.DEFAULT_BUDGET)
     p.add_argument('--codex-context-budget',type=int,default=r.DEFAULT_BUDGET)
     a=ap.parse_args()
-    if a.mode=='pack': pack(a.agent,a.project,a.out,a.source_home or Path.home()/('.claude' if a.agent=='claude' else '.codex'),json.loads(a.sessions_json.read_text(encoding='utf-8')) if a.sessions_json else None,a.native,a.include_memory,a.include_checkpoints,a.source_desktop_registry,dry_run=a.dry_run,allow_large=a.allow_large,allow_secrets_in_config=a.allow_secrets_in_config,files_mode=a.files_mode,include_git=a.include_git)
+    if a.mode=='pack':
+        default_home=Path.home()/('.gemini/antigravity' if a.agent=='antigravity' else '.'+a.agent)
+        if a.agent=='dsh' and os.environ.get('DSH_HOME'):default_home=Path(os.environ['DSH_HOME'])
+        pack(a.agent,a.project,a.out,a.source_home or default_home,json.loads(a.sessions_json.read_text(encoding='utf-8')) if a.sessions_json else None,a.native,a.include_memory,a.include_checkpoints,a.source_desktop_registry,dry_run=a.dry_run,allow_large=a.allow_large,allow_secrets_in_config=a.allow_secrets_in_config,files_mode=a.files_mode,include_git=a.include_git,attachment_roots=a.attachment_root)
     else:
         if a.native and (a.convert or load_manifest(a.package).get('source_agent')!=a.to):raise ValueError('--native requires a same-agent package without --convert')
         restore(a.package,a.cwd,a.to,a.target_home,a.no_desktop,claude_context_budget=a.claude_context_budget,codex_context_budget=a.codex_context_budget,model=a.model,claude_model=a.claude_model,claude_version=a.claude_version,desktop_registry=a.desktop_registry,convert=a.convert,dry_run=a.dry_run,new_copy=a.new_copy,fast_forward=a.fast_forward,strict_files=a.strict_files)

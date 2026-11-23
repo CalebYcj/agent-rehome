@@ -1,6 +1,6 @@
 # agent-exchange/v2
 
-实现状态：架构测试版。协议与来源适配器在 `scripts/exchange.py`，目标写入器继续通过显式 v1 适配层工作。只有 Claude、Codex 两种来源已实现；新增 Agent 必须提供读取、损失审计和写入适配器，不能仅修改枚举宣称支持。
+实现状态：交换协议在 `scripts/exchange.py`，目标写入器使用显式 v1 适配层。项目来源适配器覆盖 Claude Code、Codex、WorkBuddy、DSH V4 和已验证的 Antigravity Desktop 单根项目格式。Antigravity 目标侧在 Windows Desktop 2.33.1 样本通过桌面验收，其他平台与版本分别验证。
 
 ## 两条路线
 

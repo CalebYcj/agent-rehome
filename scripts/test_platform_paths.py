@@ -58,4 +58,8 @@ with tempfile.TemporaryDirectory() as directory:
         with patch.object(sys,'argv',['make_smoke_bundle',str(output),*(['--long'] if long else [])]): make_smoke_bundle.main()
         bundle=json.loads(output.read_text(encoding='utf-8'));projects.r.validate(bundle)
         assert len(bundle['turns'])==(10 if long else 1)
+    db=root/'sample.sqlite';db.write_bytes(b'')
+    assert sqlite_read_uri(db).endswith('?mode=ro&immutable=1')
+    Path(f'{db}-wal').write_bytes(b'')
+    assert sqlite_read_uri(db).endswith('?mode=ro')
 print('PASS: POSIX/Windows storage, UNC, foreign names, case-sensitive POSIX paths, escaped SQLite URI, copied rollouts, read-only macOS candidates')
