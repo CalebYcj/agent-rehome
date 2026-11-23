@@ -2,6 +2,13 @@
 
 Historical entries describe their original checkpoints; current bounded evidence is in docs/VALIDATION.md.
 
+## 0.6.0
+
+- Add **WorkBuddy** (`workbuddy_source.py`, `workbuddy_native.py`, `workbuddy_receive.py`), **DeepSeek Harness** (`dsh_source.py`, `dsh_native.py`), and **Antigravity Desktop** (`antigravity_source.py`, `antigravity_stage.py`, `antigravity_desktop.py`, `antigravity_relay.py`) support alongside Claude Code and Codex.
+- Preserve project slugs with dots in WorkBuddy (`workbuddy_source.py`), support return packing of continued imported Codex sessions via `project_roots` (`project_rehome.py`), and exclude `.rehome/` migration metadata cleanly without colliding with `.rehome/attachments/` or project files (`project_rehome.py`, `workbuddy_receive.py`).
+- Cross-platform SQLite & runtime fixes: append `immutable=1` in `platform_paths.sqlite_read_uri()` when `-wal`/`-shm` sidecars are absent (fixing macOS read-only opens of closed databases), and support macOS/Linux `pgrep` in `antigravity_desktop.runtime_open()`.
+- Windows and macOS (`Intel x86_64`) multi-format desktop validation across 18 attachment formats (`run_tests.py` 35/35 passing).
+
 ## 0.5.2
 
 - Move your own Skills: batch packs now include the Skills installed for every project (`~/.claude/skills`, `~/.agents/skills`, `~/.codex/skills`). Restore only lists them; `user_skills.py install --apply` copies them after the user agrees, `--only NAME` picks. Folders are copied unchanged and an existing Skill of the same name is never overwritten. Plugins, built-in dot folders, linked folders and Agent Rehome itself are left out; a Skill with a possible secret is skipped and listed. `--no-user-skills` leaves them out.

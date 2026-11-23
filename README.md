@@ -1,6 +1,6 @@
 # Agent Rehome
 
-版本 **0.5.2** · [English](README.en.md) · [MIT](LICENSE)
+版本 **0.6.0** · [English](README.en.md) · [MIT](LICENSE)
 
 把 Codex、Claude Code 的对话和项目，搬到另一个 Agent 接着做。
 

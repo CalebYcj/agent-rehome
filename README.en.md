@@ -1,6 +1,6 @@
 # Agent Rehome
 
-Version **0.5.2** · [中文](README.md) · [MIT](LICENSE)
+Version **0.6.0** · [中文](README.md) · [MIT](LICENSE)
 
 Move your Codex and Claude Code conversations and projects to another agent, and keep going.
 
