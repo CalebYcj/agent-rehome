@@ -2,29 +2,37 @@
 
 版本 **0.6.0** · [English](README.en.md) · [MIT](LICENSE)
 
-把 Codex、Claude Code 的对话和项目，搬到另一个 Agent 接着做。
+把 **Codex、Claude Code、WorkBuddy、DeepSeek Harness 和 Antigravity Desktop** 的对话、项目与多格式附件，搬到另一个 Agent 接着做。
 
-**完成标准**是旧会话出现在目标应用的左侧栏，整项目迁移时归入正确项目，点开能看旧消息并在同一条会话续聊。项目文件与附件也随迁。Codex 与 WorkBuddy 的双向桌面恢复已在 Windows 和 macOS 的合成项目样本中通过。各路线以[平台验收记录](docs/VALIDATION.md)为准。
+**完成标准**是旧会话出现在目标应用的左侧栏，整项目迁移时归入正确项目，点开能看旧消息并在同一条会话续聊。项目文件与历史附件也随迁。各方向实测范围、边界与已知限制以[平台验收记录](docs/VALIDATION.md)为准。
 
-在 Codex 里做了几个月的项目，想换 Claude 接着做？不用从头再讲一遍。只要在新的 Agent 里装上这个 Skill，说一句“把 Codex 的项目全搬过来”，聊天记录、图片和项目文件就一起搬过去，新的 Agent 直接接着聊。旧的 Agent 不用打开，额度用完了也能搬，因为搬的是你电脑上的本地记录。
+在某个 AI 编程/桌面 Agent 里做了几个月的项目，想换另一个接着做？不用从头再讲一遍。只要在目标 Agent 里装上这个 Skill，说一句“用 Agent Rehome 把某某项目搬过来”，聊天记录、多格式附件和项目文件就一起搬过去，新的 Agent 直接接着聊。旧的 Agent 不用打开，额度用完了也能搬，因为搬的是你电脑上的本地记录。
 
-- Codex → Claude、Claude → Codex 都能搬，同类之间也能搬
-- Windows、macOS 都能用，换电脑也能搬
-- 单条对话、整个项目都可以
-- 原来的对话不动，随时能回去
-- 免费开源（MIT）
+- **5 大 Agent 跨端互通**：支持 Codex、Claude Code、WorkBuddy、DeepSeek Harness、Antigravity Desktop 之间单向/双向迁移与同类换机恢复
+- **Windows & macOS 全覆盖**：同机跨工具、跨平台换机都可以
+- **单条对话 & 整项目**：支持多会话归组、项目文件、全局规则与用户级 Skills、多格式历史附件（图片/文档/音视频与通用文件）
+- **原记录零破坏**：默认先预览再写入，写前自动备份，原来的对话不动
+- **免费开源（MIT）**
+
+### 支持的 Agent 概览
+
+| Agent | Windows | macOS | 安装 Skill 目录示例 |
+| --- | --- | --- | --- |
+| **Codex** (`ChatGPT` 桌面端 / CLI) | 支持 | 支持 | `~/.agents/skills/agent-rehome/` 或 `~/.codex/skills/agent-rehome/` |
+| **Claude Code** | 支持 | 支持 | `~/.claude/skills/agent-rehome/` |
+| **WorkBuddy** | 支持 | 支持 | `~/.workbuddy/skills/agent-rehome/`（或工作区接收） |
+| **DeepSeek Harness (`dsh`)** | 支持 | 视架构与运行时而定（见 [DSH 说明](docs/DSH_RUNTIME.md)） | `~/.dsh/skills/agent-rehome/` |
+| **Antigravity Desktop** | 支持 | 支持 | `~/.gemini/antigravity/skills/agent-rehome/` |
 
 ## 快速上手
 
-1. **装 Skill**：下载最新 [Release](https://github.com/CalebYcj/agent-rehome/releases/latest) 并解压，把里面的 `agent-rehome` 文件夹放到：
-   - Claude Code：`~/.claude/skills/agent-rehome/`
-   - Codex：`~/.agents/skills/agent-rehome/`
+1. **装 Skill**：下载最新 [Release](https://github.com/CalebYcj/agent-rehome/releases/latest) 并解压，把里面的 `agent-rehome` 文件夹放到目标 Agent 的 Skills 目录（见上表，例如 `~/.agents/skills/agent-rehome/`、`~/.claude/skills/agent-rehome/` 或 `~/.gemini/antigravity/skills/agent-rehome/`）。
 
    装在你要搬去的那个 Agent 里就行。也可以把本仓库链接发给你的 Agent，请它按这里的说明安装。
 2. **准备 Python 3.10+**：没有的话，Agent 会告诉你去哪下载。
-3. **说一句话**：在新的 Agent 里说：`用 Agent Rehome 把 Codex 的项目全搬过来`（反过来就说 Claude）。它会先列出清单给你确认，再一次搬完。
-4. **换了电脑**：先把旧电脑上的 `.codex` 或 `.claude` 文件夹，连同项目文件夹，一起复制到新电脑，再告诉 Agent 它们在哪。
-5. **接着聊**：按 Agent 的提示完成剩下的一两步，打开迁移过来的对话就能继续。
+3. **说一句话**：在新的 Agent 里说：`用 Agent Rehome 把 Codex 的项目全搬过来`（也可以换成 Claude、WorkBuddy、DSH 或 Antigravity）。它会先列出清单给你确认，再一次搬完。
+4. **换了电脑**：先把旧电脑上对应 Agent 的本地数据目录（如 `.codex`、`.claude`、`.workbuddy`、`.dsh` 或 `.gemini/antigravity`）连同项目文件夹一起复制到新电脑，再告诉 Agent 它们在哪。
+5. **接着聊**：按 Agent 的提示完成剩下的一两步（如重启桌面端以刷新左侧栏），打开迁移过来的对话就能继续。
 
 旧电脑上也装了 Skill 的话，也可以按老办法分两步走：在原来的 Agent 里说“打包”，在新的 Agent 里说“接收这个搬家包”。
 

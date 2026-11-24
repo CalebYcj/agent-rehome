@@ -2,29 +2,37 @@
 
 Version **0.6.0** · [中文](README.md) · [MIT](LICENSE)
 
-Move your Codex and Claude Code conversations and projects to another agent, and keep going.
+Move conversations, projects, and multi-format attachments across **Codex, Claude Code, WorkBuddy, DeepSeek Harness, and Antigravity Desktop**, and keep going.
 
-**A migration is complete** when the original chats appear in the target app's sidebar, are grouped under the correct project for a project move, and can be opened and continued in place. Project files and attachments travel with them. Synthetic desktop tests passed in both directions between Codex and WorkBuddy on Windows and macOS. See the [platform validation record](docs/VALIDATION.md) for results by route.
+**A migration is complete** when the original chats appear in the target app's sidebar, are grouped under the correct project for a project move, and can be opened and continued in place. Project files and historical attachments travel with them. See the [platform validation record](docs/VALIDATION.md) for verified routes, boundaries, and known limitations.
 
-Spent months on a project in Codex and want to continue in Claude? No need to explain it all again. Install this Skill in the new agent and say "move my Codex projects over". Chat history, images and project files move together, and the new agent picks up where you left off. The old agent does not need to be open, or even have quota left: what moves is the local history on your computer.
+Spent months on a project in one AI coding/desktop agent and want to continue in another? No need to explain it all again. Install this Skill in the target agent and say "use Agent Rehome to move my project here". Chat history, multi-format attachments, and project files move together, and the new agent picks up where you left off. The source agent does not need to be open, or even have quota left: what moves is the local history on your computer.
 
-- Codex → Claude, Claude → Codex, and same-agent moves
-- Windows and macOS, including moving to another computer
-- A single conversation or a whole project
-- Your original conversation stays where it is
-- Free and open source (MIT)
+- **5 supported agents**: move across Codex, Claude Code, WorkBuddy, DeepSeek Harness, and Antigravity Desktop (cross-agent or same-agent relocation)
+- **Windows and macOS**: works both on the same machine and when moving to another computer
+- **Single chat or whole project**: preserves multi-session grouping, project files, global rules, user-installed Skills, and historical attachments (images, documents, audio/video, and general files)
+- **Non-destructive**: previews before writing, backs up target state automatically, and leaves original conversations untouched
+- **Free and open source (MIT)**
+
+### Supported Agents Overview
+
+| Agent | Windows | macOS | Skill Install Directory |
+| --- | --- | --- | --- |
+| **Codex** (`ChatGPT` Desktop / CLI) | Supported | Supported | `~/.agents/skills/agent-rehome/` or `~/.codex/skills/agent-rehome/` |
+| **Claude Code** | Supported | Supported | `~/.claude/skills/agent-rehome/` |
+| **WorkBuddy** | Supported | Supported | `~/.workbuddy/skills/agent-rehome/` (or workspace receive) |
+| **DeepSeek Harness (`dsh`)** | Supported | Architecture/runtime dependent (see [DSH runtime](docs/DSH_RUNTIME.md)) | `~/.dsh/skills/agent-rehome/` |
+| **Antigravity Desktop** | Supported | Supported | `~/.gemini/antigravity/skills/agent-rehome/` |
 
 ## Quick start
 
-1. **Install the Skill**: download the latest [Release](https://github.com/CalebYcj/agent-rehome/releases/latest), unzip it, and put the `agent-rehome` folder in:
-   - Claude Code: `~/.claude/skills/agent-rehome/`
-   - Codex: `~/.agents/skills/agent-rehome/`
+1. **Install the Skill**: download the latest [Release](https://github.com/CalebYcj/agent-rehome/releases/latest), unzip it, and put the `agent-rehome` folder in your target agent's Skills directory (see table above, e.g. `~/.agents/skills/agent-rehome/`, `~/.claude/skills/agent-rehome/`, or `~/.gemini/antigravity/skills/agent-rehome/`).
 
    Installing it in the agent you are moving to is enough. You can also send this repository link to your agent and ask it to install the Skill by these instructions.
 2. **Have Python 3.10+**: if it is missing, the agent tells you where to get it.
-3. **Say one sentence**: in the new agent, say: `Use Agent Rehome to move all my Codex projects here` (or Claude, the other way round). It lists them for you to confirm, then moves them in one go.
-4. **New computer**: copy the old `.codex` or `.claude` folder and your project folders over first, then tell the agent where they are.
-5. **Keep going**: follow the agent's prompts for the last step or two, then open the moved conversation and continue.
+3. **Say one sentence**: in the new agent, say: `Use Agent Rehome to move all my Codex projects here` (or substitute Claude, WorkBuddy, DSH, or Antigravity). It lists them for you to confirm, then moves them in one go.
+4. **New computer**: copy the source agent's local data directory (e.g. `.codex`, `.claude`, `.workbuddy`, `.dsh`, or `.gemini/antigravity`) and your project folders over first, then tell the agent where they are.
+5. **Keep going**: follow the agent's prompts for the last step or two (such as restarting the desktop app to refresh its sidebar), then open the moved conversation and continue.
 
 If the old computer also has the Skill, the two-step way still works: say "pack" in the old agent and "receive this package" in the new one.
 
