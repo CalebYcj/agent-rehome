@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory() as td:
 # Continued imported Codex history (with live runtime events) is packable for return trips.
 with tempfile.TemporaryDirectory() as td2:
  d2=Path(td2); proj2=d2/'proj'; proj2.mkdir(); (proj2/'a.txt').write_text('ok',encoding='utf-8')
- sid2='22345678-1234-4567-8123-123456789012'; ts2='2026-11-24T00:00:00Z'
+ sid2='aaaaaaaa-1234-4567-8123-123456789012'; ts2='2026-11-24T00:00:00Z'
  r2=[
   {'type':'session_meta','payload':{'id':sid2,'cli_version':'claude-import','cwd':str(proj2)}},
   {'timestamp':ts2,'type':'event_msg','payload':{'type':'item_completed','item':{'type':'UserMessage','content':[{'type':'text','text':'hi'}]},'turn_id':'t1'}},

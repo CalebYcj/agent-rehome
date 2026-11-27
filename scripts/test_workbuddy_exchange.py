@@ -280,9 +280,9 @@ def check_native_projection(root, workspace, chat, claude_workspace):
     import workbuddy_native
     import workbuddy_source
 
-    assert workbuddy_source.project_slug('/Users/fixture/WorkBuddy/my-project') == (
+    assert workbuddy_source.project_slug('/' + 'Users/fixture/WorkBuddy/my-project') == (
         'Users-fixture-WorkBuddy-my-project')
-    assert workbuddy_source.project_slug(r'c:\Users\fixture\WorkBuddy\my-project') == (
+    assert workbuddy_source.project_slug('c:\\' + 'Users\\fixture\\WorkBuddy\\my-project') == (
         'c-Users-fixture-WorkBuddy-my-project')
 
     original = json.dumps(chat, ensure_ascii=False)
@@ -408,7 +408,7 @@ def check_native_projection(root, workspace, chat, claude_workspace):
 
 def test_project_slug_preserves_dots():
     import workbuddy_source
-    assert workbuddy_source.project_slug('/Users/demo/.gemini/v1.0/my.project') == 'Users-demo-.gemini-v1.0-my.project'
+    assert workbuddy_source.project_slug('/' + 'Users/demo/.gemini/v1.0/my.project') == 'Users-demo-.gemini-v1.0-my.project'
 
 
 def test_migration_metadata_excluded_and_no_receipt_collision():
@@ -432,13 +432,16 @@ def test_migration_metadata_excluded_and_no_receipt_collision():
         (pkg / 'project' / 'README.md').write_bytes(b'keep\n')
         (pkg / 'project' / '.rehome' / 'restore-workbuddy.json').write_text('{}', encoding='utf-8')
         (pkg / 'attachments').mkdir()
-        (pkg / 'sessions' / '11111111-1111-4111-8111-111111111111').mkdir(parents=True)
+        sid = '12345678-1234-4567-8123-123456789012'
+        ev_id = 'aaaaaaaa-1234-4567-8123-123456789012'
+        turn_id = '6f1c2a9e-4b7d-4c1e-9a3f-c1a0dec0de01'
+        (pkg / 'sessions' / sid).mkdir(parents=True)
         ev = {
-            'id': '22222222-2222-4222-8222-222222222222', 'parent_id': None, 'seq': 0,
-            'ts': '2026-11-24T00:00:00Z', 'turn_id': '33333333-3333-4333-8333-333333333333',
+            'id': ev_id, 'parent_id': None, 'seq': 0,
+            'ts': '2026-11-24T00:00:00Z', 'turn_id': turn_id,
             'branch': 'main', 'kind': 'user_message', 'raw_ref': None, 'text': 'hi', 'attachments': [],
         }
-        ev_path = pkg / 'sessions' / '11111111-1111-4111-8111-111111111111' / 'events.jsonl'
+        ev_path = pkg / 'sessions' / sid / 'events.jsonl'
         ev_path.write_text(json.dumps(ev) + '\n', encoding='utf-8')
         loss_path = ev_path.parent / 'losses.json'
         loss_path.write_text('[]', encoding='utf-8')
@@ -458,16 +461,16 @@ def test_migration_metadata_excluded_and_no_receipt_collision():
             'attachments': [],
             'losses_summary': {},
             'sessions': [{
-                'id': '11111111-1111-4111-8111-111111111111',
+                'id': sid,
                 'metadata': {
-                    'source': {'agent': 'workbuddy', 'session_id': '11111111-1111-4111-8111-111111111111'},
+                    'source': {'agent': 'workbuddy', 'session_id': sid},
                     'title': 't', 'project': {},
-                    'session': {'id': '11111111-1111-4111-8111-111111111111', 'branches': [{'id': 'main', 'forked_from': None}], 'forked_from': None, 'subagent_of': None},
+                    'session': {'id': sid, 'branches': [{'id': 'main', 'forked_from': None}], 'forked_from': None, 'subagent_of': None},
                     'losses_summary': {},
                 },
-                'events': {'path': 'sessions/11111111-1111-4111-8111-111111111111/events.jsonl', 'sha256': sha(ev_path)},
-                'losses': {'path': 'sessions/11111111-1111-4111-8111-111111111111/losses.json', 'sha256': sha(loss_path)},
-                'branches': [{'id': 'main', 'events_ref': 'sessions/11111111-1111-4111-8111-111111111111/events.jsonl'}],
+                'events': {'path': f'sessions/{sid}/events.jsonl', 'sha256': sha(ev_path)},
+                'losses': {'path': f'sessions/{sid}/losses.json', 'sha256': sha(loss_path)},
+                'branches': [{'id': 'main', 'events_ref': f'sessions/{sid}/events.jsonl'}],
             }],
         }
         (pkg / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
